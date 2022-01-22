@@ -24,7 +24,7 @@ require any Internet connection to work.
 
 
 ## EmailHostSyntaxValidator
-Validates if the name is following expected syntax rules and whether it is part of a known public suffix. Does NOT validate if the domain actually exists or even allowed by the registrar.
+Validates if the email's host name is following expected syntax rules and whether it is part of a known public suffix. Does NOT validate if the domain actually exists or even allowed by the registrar.
 
     if EmailHostSyntaxValidator.match("yahoo.com") {
         print("yahoo.com has valid email host syntax")
