@@ -62,20 +62,20 @@ final class IPAddressValidatorTests: XCTestCase {
     ]
 
     func testValidIPv6Addresses() {
-        validIPv6Addresses.forEach { XCTAssertTrue(IPAddressValidator.isIPv6Address($0), "Expected \($0) to be a valid IPv6 address") }
+        validIPv6Addresses.forEach { XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6($0), "Expected \($0) to be a valid IPv6 address") }
     }
     
     func testInvalidIPv6Addresses() {
-        invalidIPv6Addresses.forEach { XCTAssertFalse(IPAddressValidator.isIPv6Address($0), "Expected \($0) to be an invalid IPv6 address") }
-        validIPv4Addresses.forEach { XCTAssertFalse(IPAddressValidator.isIPv6Address($0), "Expected \($0) to be a valid IPv4 but not a valid IPv6 address") }
+        invalidIPv6Addresses.forEach { XCTAssertFalse(IPAddressSyntaxValidator.matchIPv6($0), "Expected \($0) to be an invalid IPv6 address") }
+        validIPv4Addresses.forEach { XCTAssertFalse(IPAddressSyntaxValidator.matchIPv6($0), "Expected \($0) to be a valid IPv4 but not a valid IPv6 address") }
     }
     
     func testValidIPv4Addresses() {
-        validIPv4Addresses.forEach { XCTAssertTrue(IPAddressValidator.isIPv4Address($0), "Expected \($0) to be a valid IPv4 address") }
+        validIPv4Addresses.forEach { XCTAssertTrue(IPAddressSyntaxValidator.matchIPv4($0), "Expected \($0) to be a valid IPv4 address") }
     }
     
     func testInvalidIPv4Addresses() {
-        invalidIPv4Addresses.forEach { XCTAssertFalse(IPAddressValidator.isIPv4Address($0), "Expected \($0) to be an invalid IPv4 address") }
-        validIPv6Addresses.forEach { XCTAssertFalse(IPAddressValidator.isIPv4Address($0), "Expected \($0) to be a valid IPv6 but not a valid IPv4 address") }
+        invalidIPv4Addresses.forEach { XCTAssertFalse(IPAddressSyntaxValidator.matchIPv4($0), "Expected \($0) to be an invalid IPv4 address") }
+        validIPv6Addresses.forEach { XCTAssertFalse(IPAddressSyntaxValidator.matchIPv4($0), "Expected \($0) to be a valid IPv6 but not a valid IPv4 address") }
     }
 }

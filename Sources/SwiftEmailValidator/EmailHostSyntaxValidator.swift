@@ -15,7 +15,7 @@ import Foundation
 final public class EmailHostSyntaxValidator {
     
     public static let publicSuffixDatabase: [[String]] = loadPublicSuffixDatabase()
-    public static func isValidEmailHostSyntax(_ candidate: String, rules: [[String]] = publicSuffixDatabase) -> Bool {
+    public static func match(_ candidate: String, rules: [[String]] = publicSuffixDatabase) -> Bool {
         
         guard hostPassesGuards(candidate) else { return false }
         

@@ -64,33 +64,33 @@ class EmailHostValidatorTests: XCTestCase {
     ]
     
     func testValidSyntaxHosts() {
-        validSyntaxHosts.forEach { XCTAssertTrue(EmailHostSyntaxValidator.isValidEmailHostSyntax($0), "Expected \($0) to be a valid email host syntax") }
+        validSyntaxHosts.forEach { XCTAssertTrue(EmailHostSyntaxValidator.match($0), "Expected \($0) to be a valid email host syntax") }
     }
     
     func testInvalidSyntaxHosts() {
-        invalidSyntaxHosts.forEach { XCTAssertFalse(EmailHostSyntaxValidator.isValidEmailHostSyntax($0), "Expected \($0) to be an invalid email host syntax") }
+        invalidSyntaxHosts.forEach { XCTAssertFalse(EmailHostSyntaxValidator.match($0), "Expected \($0) to be an invalid email host syntax") }
     }
     
     func testSimpleSuffix() {
-        XCTAssertFalse(EmailHostSyntaxValidator.isValidEmailHostSyntax("com", rules: [["com"]]))
-        XCTAssertTrue(EmailHostSyntaxValidator.isValidEmailHostSyntax("yahoo.com", rules: [["com"]] ))
+        XCTAssertFalse(EmailHostSyntaxValidator.match("com", rules: [["com"]]))
+        XCTAssertTrue(EmailHostSyntaxValidator.match("yahoo.com", rules: [["com"]] ))
     }
     
     func testSimpleSuffixWithWildcardRule() {
-        XCTAssertFalse(EmailHostSyntaxValidator.isValidEmailHostSyntax("yahoo.com", rules: [["*","com"]]), "When rule contains a wildcard, any label should match and be considered public-suffix")
+        XCTAssertFalse(EmailHostSyntaxValidator.match("yahoo.com", rules: [["*","com"]]), "When rule contains a wildcard, any label should match and be considered public-suffix")
     }
     
     func testSubdomainWithSimpleSuffixAndWildcardRule() {
-        XCTAssertTrue(EmailHostSyntaxValidator.isValidEmailHostSyntax("mail.yahoo.com", rules: [["*","com"]]), "When <label>.TLD matches a wildcard but it has a subdomain, it should no longer be considered a public-suffix and be allowed")
+        XCTAssertTrue(EmailHostSyntaxValidator.match("mail.yahoo.com", rules: [["*","com"]]), "When <label>.TLD matches a wildcard but it has a subdomain, it should no longer be considered a public-suffix and be allowed")
     }
     
     func testSubdomainWithSimpleSuffixWithWildcardAndException() {
-        XCTAssertTrue(EmailHostSyntaxValidator.isValidEmailHostSyntax("yahoo.com", rules: [["*","com"],["!yahoo","com"]]), "An exception exists for this exact match therefore it is not a public-suffix and should be allowed")
-        XCTAssertTrue(EmailHostSyntaxValidator.isValidEmailHostSyntax("yahoo.com", rules: [["!yahoo","com"],["*","com"]]), "An exception exists for this exact match therefore it is not a public-suffix and should be allowed")
+        XCTAssertTrue(EmailHostSyntaxValidator.match("yahoo.com", rules: [["*","com"],["!yahoo","com"]]), "An exception exists for this exact match therefore it is not a public-suffix and should be allowed")
+        XCTAssertTrue(EmailHostSyntaxValidator.match("yahoo.com", rules: [["!yahoo","com"],["*","com"]]), "An exception exists for this exact match therefore it is not a public-suffix and should be allowed")
     }
     
     func testExtendedSuffix() {
-        XCTAssertFalse(EmailHostSyntaxValidator.isValidEmailHostSyntax("izumizaki.fukushima.jp", rules: [["izumizaki","fukushima","jp"]]),"A domain containing multiple labels perfectly match a defined public-suffix, it should not be allowed")
-        XCTAssertFalse(EmailHostSyntaxValidator.isValidEmailHostSyntax("izumizaki.fukushima.jp"))
+        XCTAssertFalse(EmailHostSyntaxValidator.match("izumizaki.fukushima.jp", rules: [["izumizaki","fukushima","jp"]]),"A domain containing multiple labels perfectly match a defined public-suffix, it should not be allowed")
+        XCTAssertFalse(EmailHostSyntaxValidator.match("izumizaki.fukushima.jp"))
     }
 }
