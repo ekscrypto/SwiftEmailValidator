@@ -21,3 +21,10 @@ the validator also includes IPAddressValidator and EmailHostValidator classes.
         print("fe80::1 is a valid IP address")
     }
 
+
+## EmailHostSyntaxValidator
+Validates if the name is following expected syntax rules and whether it is part of a known public suffix. Does NOT validate if the domain actually exists or even allowed by the registrar.
+
+    if EmailHostValidator.isValidEmailHostSyntax("yahoo.com") {
+        print("yahoo.com is a valid email host syntax")
+    }

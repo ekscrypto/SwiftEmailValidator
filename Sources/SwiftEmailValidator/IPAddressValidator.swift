@@ -6,7 +6,7 @@
 
 import Foundation
 
-final class IPAddressValidator {
+final public class IPAddressValidator {
     
     static func isIPAddress(_ candidate: String) -> Bool {
         isIPv4Address(candidate) || isIPv6Address(candidate)
