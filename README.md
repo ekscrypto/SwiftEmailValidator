@@ -1,3 +1,5 @@
+[![codecov](https://codecov.io/gh/ekscrypto/SwiftEmailValidator/branch/main/graph/badge.svg?token=W9KO1BG8S0)](https://codecov.io/gh/ekscrypto/SwiftEmailValidator)
+
 # SwiftEmailValidator
 
 A Swift implementation of an international email address syntax validator.  Since email addresses are local @ remote
