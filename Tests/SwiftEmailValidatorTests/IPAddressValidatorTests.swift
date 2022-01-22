@@ -78,4 +78,12 @@ final class IPAddressValidatorTests: XCTestCase {
         invalidIPv4Addresses.forEach { XCTAssertFalse(IPAddressSyntaxValidator.matchIPv4($0), "Expected \($0) to be an invalid IPv4 address") }
         validIPv6Addresses.forEach { XCTAssertFalse(IPAddressSyntaxValidator.matchIPv4($0), "Expected \($0) to be a valid IPv6 but not a valid IPv4 address") }
     }
+    
+    func testValidIPAddresses() {
+        var allValidAddresses: [String] = []
+        allValidAddresses.append(contentsOf: validIPv4Addresses)
+        allValidAddresses.append(contentsOf: validIPv6Addresses)
+        
+        allValidAddresses.forEach { XCTAssertTrue(IPAddressSyntaxValidator.match($0), "Expected \($0) to be a valid IP (v4/v6) address") }
+    }
 }

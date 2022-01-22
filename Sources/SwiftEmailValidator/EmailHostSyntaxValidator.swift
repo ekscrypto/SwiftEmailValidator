@@ -14,6 +14,11 @@ import Foundation
 
 final public class EmailHostSyntaxValidator {
     
+    /// Validate the candidate string follows expected RFC5321 Domain syntax
+    /// - Parameters:
+    ///   - candidate: String to validate
+    ///   - rules: Public Suffix List registry rules to validate against
+    /// - Returns: true if domain is not a public suffix AND domain is a subdomain of a defined public suffix AND string follows RFC5321 validation rules; false otherwise
     public static func match(_ candidate: String, rules: [[String]] = PublicSuffixRulesRegistry.rules) -> Bool {
         
         guard hostPassesGuards(candidate) else { return false }
