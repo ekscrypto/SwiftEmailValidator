@@ -14,8 +14,7 @@ import Foundation
 
 final public class EmailHostSyntaxValidator {
     
-    public static let publicSuffixDatabase: [[String]] = loadPublicSuffixDatabase()
-    public static func match(_ candidate: String, rules: [[String]] = publicSuffixDatabase) -> Bool {
+    public static func match(_ candidate: String, rules: [[String]] = PublicSuffixRulesRegistry.rules) -> Bool {
         
         guard hostPassesGuards(candidate) else { return false }
         
@@ -35,20 +34,7 @@ final public class EmailHostSyntaxValidator {
         }
         return labels.count > prevailingRule.count
     }
-    
-    private static func loadPublicSuffixDatabase() -> [[String]] {
-        guard let databaseUrl = Bundle.module.url(forResource: "public_suffix_list", withExtension: "dat"),
-              let publicSuffixData = try? Data(contentsOf: databaseUrl),
-              let publicSuffixList = String(data: publicSuffixData, encoding: .utf8)?.components(separatedBy: .newlines)
-        else {
-            return []
-        }
         
-        return publicSuffixList
-            .filter({ !$0.hasPrefix("//") && $0.count > 0 }) // filter out comments and empty lines
-            .map({ $0.components(separatedBy: ".") }) // split public suffixes per label
-    }
-    
     private static func labelPassesGuards(_ label: String) -> Bool {
         (1...63).contains(label.count) && // must contain at least 1 character, no more than 63
         !label.hasPrefix("-") && // must not start with hyphen

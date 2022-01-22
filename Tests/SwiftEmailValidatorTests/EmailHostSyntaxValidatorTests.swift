@@ -1,14 +1,14 @@
 //
-//  EmailHostValidatorTests.swift
-//  
+//  EmailHostSyntaxValidatorTests.swift
+//  SwiftEmailValidator
 //
 //  Created by Dave Poirier on 2022-01-21.
-//
+//  Copyrights (C) 2022, Dave Poirier.  Distributed under MIT license.
 
 import XCTest
 @testable import SwiftEmailValidator
 
-class EmailHostValidatorTests: XCTestCase {
+class EmailHostSyntaxValidatorTests: XCTestCase {
 
     let validSyntaxHosts: [String] = [
         "yahoo.com", // confirm simplest case

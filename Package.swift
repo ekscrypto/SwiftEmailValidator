@@ -15,7 +15,7 @@ let package = Package(
         .target(
             name: "SwiftEmailValidator",
             dependencies: [],
-            resources: [.process("public_suffix_list.dat")]),
+            resources: []),
         .testTarget(
             name: "SwiftEmailValidatorTests",
             dependencies: ["SwiftEmailValidator"]),
