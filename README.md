@@ -6,6 +6,9 @@ A Swift implementation of an international email address syntax validator based 
 local @ remote the validator also includes IPAddressSyntaxValidator and EmailHostSyntaxValidator classes.  This 
 Swift Package does not require an Internet connection at runtime and is entirely self contained.
 
+RFC2047 - MIME (Multipurpose Internet Mail Extensions) Part Three: Message Header Extensions for Non-ASCII Text
+https://datatracker.ietf.org/doc/html/rfc2047
+
 RFC5321 - Simple Mail Transfer Protocol
 https://datatracker.ietf.org/doc/html/rfc5321
 
@@ -49,3 +52,9 @@ Validates if the email's host name is following expected syntax rules and whethe
     if EmailHostSyntaxValidator.match("yahoo.com") {
         print("yahoo.com has valid email host syntax")
     }
+
+## RFC2047Decoder
+Allows to decode Unicode email addresses from SMTP headers
+
+    print(RFC2047Decoder.decode("=?iso-8859-1?q?h=E9ro\@site.com?=")) 
+    // héro@site.com
