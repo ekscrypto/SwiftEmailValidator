@@ -129,14 +129,14 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: shouldBeInvalidEmail))
     }
     
-    func testLocalPartWithQEncoding() {
-        let testEmail = "=?iso-8851-1?q?Santa=20Claus@site.com?="
-        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.localPart, .dotAtom("=?iso-8851-1?q?Santa=20Claus?="))
-    }
-
-    func testLocalPartWithBEncoding() {
-        let testEmail = "=?utf-8?B?7ZWcQHgu7ZWc6rWt?="
-        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.localPart, .dotAtom("한"))
-        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.host, .domain("x.한국"))
-    }
+//    func testLocalPartWithQEncoding() {
+//        let testEmail = "=?iso-8851-1?q?Santa=20Claus@site.com?="
+//        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.localPart, .dotAtom("=?iso-8851-1?q?Santa=20Claus?="))
+//    }
+//
+//    func testLocalPartWithBEncoding() {
+//        let testEmail = "=?utf-8?B?7ZWcQHgu7ZWc6rWt?="
+//        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.localPart, .dotAtom("한"))
+//        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.host, .domain("x.한국"))
+//    }
 }
