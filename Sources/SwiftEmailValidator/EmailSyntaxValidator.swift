@@ -31,33 +31,47 @@ public final class EmailSyntaxValidator {
     
     public enum ValidationStrategy {
         case smtpHeader // will detect and decode =? encoded email addresses
-        case userInterface
+        case userInterface // will validate email can be encoded to desired smtp compatibility
     }
     
-    public static func match(_ candidate: String, strategy: ValidationStrategy = .smtpHeader, allowAddressLiteral: Bool = false, domainRules: [[String]] = PublicSuffixRulesRegistry.rules) -> Bool {
-        mailbox(from: candidate, allowAddressLiteral: allowAddressLiteral, domainRules: domainRules) != nil
+    public enum Compatibility {
+        case ascii
+        case asciiWithUnicodeExtension
+        case unicode
     }
     
-    public static func mailbox(from candidate: String, strategy: ValidationStrategy = .smtpHeader, allowAddressLiteral: Bool = false, domainRules: [[String]] = PublicSuffixRulesRegistry.rules) -> Mailbox? {
+    public static func match(_ candidate: String,
+                             strategy: ValidationStrategy = .smtpHeader,
+                             compatibility: Compatibility = .unicode,
+                             allowAddressLiteral: Bool = false,
+                             domainRules: [[String]] = PublicSuffixRulesRegistry.rules) -> Bool {
+
+        mailbox(from: candidate,
+                strategy: strategy,
+                compatibility: compatibility,
+                allowAddressLiteral: allowAddressLiteral,
+                domainRules: domainRules) != nil
+    }
+    
+    public static func mailbox(from candidate: String,
+                               strategy: ValidationStrategy = .smtpHeader,
+                               compatibility: Compatibility = .unicode,
+                               allowAddressLiteral: Bool = false,
+                               domainRules: [[String]] = PublicSuffixRulesRegistry.rules) -> Mailbox? {
         
+        var smtpCandidate: String = candidate
+        if compatibility != .ascii, let decodedCandidate = RFC2047Coder.decode(candidate) {
+            smtpCandidate = decodedCandidate
+        }
+
         let localPart: Mailbox.LocalPart
         let nonLocalPart: String
-        if let dotAtom = extractDotAtom(candidate) {
+        if let dotAtom = extractDotAtom(smtpCandidate, compatibility: compatibility) {
             localPart = .dotAtom(dotAtom)
-            nonLocalPart = String(candidate.dropFirst(dotAtom.count + 1))
-        } else if let quotedString = extractQuotedString(candidate) {
-            localPart = .quotedString(quotedString)
-            nonLocalPart = String(candidate.dropFirst(quotedString.count + 1))
-        } else if strategy == .smtpHeader, let decodedCandidate = RFC2047Coder.decode(candidate) {
-            if let unicodeDotAtom = extractUnicodeDotAtom(candidate) {
-                localPart = .dotAtom(unicodeDotAtom)
-                nonLocalPart = String(decodedCandidate.dropFirst(unicodeDotAtom.count + 1))
-            } else if let unicodeQuotedString = extractUnicodeQuotedString(decodedCandidate) {
-                localPart = .quotedString(unicodeQuotedString)
-                nonLocalPart = String(decodedCandidate.dropFirst(unicodeQuotedString.count + 1))
-            } else {
-                return nil
-            }
+            nonLocalPart = String(smtpCandidate.dropFirst(dotAtom.count + 1))
+        } else if let quotedString = extractQuotedString(smtpCandidate, compatibility: compatibility) {
+            localPart = .quotedString(String(quotedString.cleaned))
+            nonLocalPart = String(smtpCandidate.dropFirst(quotedString.integral.count + 1))
         } else {
             return nil
         }
@@ -69,14 +83,6 @@ public final class EmailSyntaxValidator {
         return Mailbox(
             localPart: localPart,
             host: host)
-    }
-    
-    private static func extractUnicodeDotAtom(_ candidate: String) -> String? {
-        nil
-    }
-    
-    private static func extractUnicodeQuotedString(_ candidate: String) -> String? {
-        nil
     }
     
     private static func extractHost(from candidate: String, allowAddressLiteral: Bool, domainRules: [[String]]) -> Mailbox.Host? {
@@ -111,15 +117,20 @@ public final class EmailSyntaxValidator {
         .union(CharacterSet(charactersIn: alphaUpperRange))
         .union(CharacterSet(charactersIn: digitRange))
         .union(CharacterSet(charactersIn: #"!#$%&'*+-/=?^_`{|}~"#)) // Ref RFC5322 section 3.2.3 Atom, definition of atext
-    private static let quotedPairSMTP: ClosedRange<Unicode.Scalar> = Unicode.Scalar(32)!...Unicode.Scalar(126)!
-    private static let qtextSMTP1: ClosedRange<Unicode.Scalar> = Unicode.Scalar(32)!...Unicode.Scalar(33)!
-    private static let qtextSMTP2: ClosedRange<Unicode.Scalar> = Unicode.Scalar(35)!...Unicode.Scalar(91)!
-    private static let qtextSMTP3: ClosedRange<Unicode.Scalar> = Unicode.Scalar(93)!...Unicode.Scalar(126)!
+    private static let asciiRange: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x00)!...Unicode.Scalar(0x7F)!
+    private static let atextUnicodeCharacterSet: CharacterSet = atextCharacterSet
+        .union(CharacterSet(charactersIn: asciiRange).inverted)
+    private static let quotedPairSMTP: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x20)!...Unicode.Scalar(0x7E)!
+    private static let qtextSMTP1: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x20)!...Unicode.Scalar(0x21)!
+    private static let qtextSMTP2: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x23)!...Unicode.Scalar(0x5B)!
+    private static let qtextSMTP3: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x5D)!...Unicode.Scalar(0x7E)!
     private static let qtextSMTPCharacterSet: CharacterSet = CharacterSet(charactersIn: qtextSMTP1)
         .union(CharacterSet(charactersIn: qtextSMTP2))
         .union(CharacterSet(charactersIn: qtextSMTP3))
+    private static let qtextUnicodeSMTPCharacterSet = qtextSMTPCharacterSet
+        .union(CharacterSet(charactersIn: asciiRange).inverted)
 
-    private static func extractDotAtom(_ candidate: String) -> String? {
+    private static func extractDotAtom(_ candidate: String, compatibility: Compatibility) -> String? {
         guard !candidate.hasPrefix("\""),
               let atRange = candidate.range(of: "@")
         else {
@@ -127,31 +138,41 @@ public final class EmailSyntaxValidator {
         }
         
         let dotAtom = candidate[..<atRange.lowerBound]
+        let disallowedCharacterSet: CharacterSet = compatibility == .ascii ? atextCharacterSet.inverted : atextUnicodeCharacterSet.inverted
         guard dotAtom.count > 0,
               dotAtom.count <= 64,
               !dotAtom.hasPrefix("."),
               !dotAtom.hasSuffix("."),
-              dotAtom.components(separatedBy: ".").allSatisfy({ $0.count > 0 && $0.rangeOfCharacter(from: atextCharacterSet.inverted) == nil })
+              dotAtom.components(separatedBy: ".").allSatisfy({ $0.count > 0 && $0.rangeOfCharacter(from: disallowedCharacterSet) == nil })
         else {
             return nil
         }
         return String(dotAtom)
     }
     
-    private static func extractQuotedString(_ candidate: String) -> String? {
+    private struct ExtractedQuotedText {
+        let integral: String
+        let cleaned: String
+    }
+    
+    private static func extractQuotedString(_ candidate: String, compatibility: Compatibility) -> ExtractedQuotedText? {
         guard candidate.hasPrefix("\"") else {
             return nil
         }
-        var quotedText: String = ""
+        var cleanedText: String = ""
+        var integralText: String = ""
         var escaped: Bool = false
         var dquotes: Int = 0
         var expectingAt: Bool = false
+        
+        let allowedCharacterSet: CharacterSet = compatibility == .ascii ? qtextSMTPCharacterSet :  qtextUnicodeSMTPCharacterSet
+        let maxScalars: Int = compatibility == .ascii ? 1 : 5
         
     nextCharacter:
         for character in candidate {
             precondition(dquotes <= 2)
             guard let characterScalar = character.unicodeScalars.first,
-                  character.unicodeScalars.count == 1
+                  character.unicodeScalars.count <= maxScalars
             else {
                 return nil
             }
@@ -160,12 +181,13 @@ public final class EmailSyntaxValidator {
                 guard character == "@" else {
                     return nil
                 }
-                return quotedText
+                return ExtractedQuotedText(integral: integralText, cleaned: cleanedText)
             }
             
-            quotedText.append(character)
+            integralText.append(character)
             
             if escaped {
+                cleanedText.append(character)
                 guard quotedPairSMTP.contains(characterScalar) else {
                     return nil
                 }
@@ -186,7 +208,9 @@ public final class EmailSyntaxValidator {
                 continue nextCharacter
             }
 
-            guard qtextSMTPCharacterSet.contains(characterScalar) else {
+            cleanedText.append(character)
+            
+            guard String(character).rangeOfCharacter(from: allowedCharacterSet) != nil else {
                 return nil
             }
         }

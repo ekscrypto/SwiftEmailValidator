@@ -13,7 +13,7 @@ import XCTest
 @testable import SwiftEmailValidator
 
 final class EmailSyntaxValidatorTests: XCTestCase {
-
+    
     func baseMailboxLocalPartValidation(_ candidate: String) -> EmailSyntaxValidator.Mailbox.LocalPart? {
         EmailSyntaxValidator.mailbox(
             from: candidate,
@@ -57,45 +57,48 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         XCTAssertNotEqual(baseMailboxLocalPartValidation("\"user\"@site.com"), .dotAtom("user"))
     }
     
+    func testSimpleQuotedLocalPart() {
+        XCTAssertEqual(baseMailboxLocalPartValidation(#""email"@site.com"#), .quotedString(#"email"#))
+    }
+    
     func testQuotedTextLocalPart() {
-        XCTAssertEqual(baseMailboxLocalPartValidation(#""email"@site.com"#), .quotedString(#""email""#))
-        XCTAssertEqual(baseMailboxLocalPartValidation(#""Mickey Mouse"@disney.com"#), .quotedString("\"Mickey Mouse\""), "Spaces are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation(#"""@site.com"#), .quotedString("\"\""), "DQUOTE *QcontentSMTP DQUOTE implies empty quoted strings are allowed for local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\" \"@site.com"), .quotedString("\" \""), "Spaces are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"!\"@site.com"), .quotedString("\"!\""), "! are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"#\"@site.com"), .quotedString("\"#\""), "# are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"$\"@site.com"), .quotedString("\"$\""), "$ are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"%\"@site.com"), .quotedString("\"%\""), "% are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"&\"@site.com"), .quotedString("\"&\""), "& are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"'\"@site.com"), .quotedString("\"'\""), "Single-quote are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"(\"@site.com"), .quotedString("\"(\""), "( are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\")\"@site.com"), .quotedString("\")\""), ") are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"*\"@site.com"), .quotedString("\"*\""), "* are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"+\"@site.com"), .quotedString("\"+\""), "+ are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\",\"@site.com"), .quotedString("\",\""), ", are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"-\"@site.com"), .quotedString("\"-\""), "- are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\".\"@site.com"), .quotedString("\".\""), ". are allowed without restriction in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"/\"@site.com"), .quotedString("\"/\""), "/ are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\":\"@site.com"), .quotedString("\":\""), ": are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\";\"@site.com"), .quotedString("\";\""), "; are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"<\"@site.com"), .quotedString("\"<\""), "< are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"=\"@site.com"), .quotedString("\"=\""), "= are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\">\"@site.com"), .quotedString("\">\""), "> are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"?\"@site.com"), .quotedString("\"?\""), "? are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"@\"@site.com"), .quotedString("\"@\""), "@ are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"[\"@site.com"), .quotedString("\"[\""), "[ are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"]\"@site.com"), .quotedString("\"]\""), "] are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"^\"@site.com"), .quotedString("\"^\""), "^ are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"_\"@site.com"), .quotedString("\"_\""), "_ are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"`\"@site.com"), .quotedString("\"`\""), "` are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"{\"@site.com"), .quotedString("\"{\""), "{ are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"|\"@site.com"), .quotedString("\"|\""), "| are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"}\"@site.com"), .quotedString("\"}\""), "} are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation("\"~\"@site.com"), .quotedString("\"~\""), "~ are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation(#""\\"@site.com"#), .quotedString("\"\\\\\""), "Backslashes are allowed when escaped in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation(#""\t"@site.com"#), .quotedString("\"\\t\""), "The next ascii (32-126) after a backslash is accepted as is")
-        XCTAssertEqual(baseMailboxLocalPartValidation(#""\""@site.com"#), .quotedString("\"\\\"\""), "Double-quotes are allowed when escaped in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation(#""email@notadomain.com"@site.com"#), .quotedString("\"email@notadomain.com\""), "Since the @ is within the double quotes it is considered as the local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation(#""Mickey Mouse"@disney.com"#), .quotedString("Mickey Mouse"), "Spaces are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation(#"""@site.com"#), .quotedString(""), "DQUOTE *QcontentSMTP DQUOTE implies empty quoted strings are allowed for local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\" \"@site.com"), .quotedString(" "), "Spaces are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"!\"@site.com"), .quotedString("!"), "! are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"#\"@site.com"), .quotedString("#"), "# are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"$\"@site.com"), .quotedString("$"), "$ are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"%\"@site.com"), .quotedString("%"), "% are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"&\"@site.com"), .quotedString("&"), "& are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"'\"@site.com"), .quotedString("'"), "Single-quote are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"(\"@site.com"), .quotedString("("), "( are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\")\"@site.com"), .quotedString(")"), ") are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"*\"@site.com"), .quotedString("*"), "* are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"+\"@site.com"), .quotedString("+"), "+ are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\",\"@site.com"), .quotedString(","), ", are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"-\"@site.com"), .quotedString("-"), "- are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\".\"@site.com"), .quotedString("."), ". are allowed without restriction in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"/\"@site.com"), .quotedString("/"), "/ are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\":\"@site.com"), .quotedString(":"), ": are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\";\"@site.com"), .quotedString(";"), "; are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"<\"@site.com"), .quotedString("<"), "< are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"=\"@site.com"), .quotedString("="), "= are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\">\"@site.com"), .quotedString(">"), "> are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"?\"@site.com"), .quotedString("?"), "? are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"@\"@site.com"), .quotedString("@"), "@ are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"[\"@site.com"), .quotedString("["), "[ are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"]\"@site.com"), .quotedString("]"), "] are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"^\"@site.com"), .quotedString("^"), "^ are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"_\"@site.com"), .quotedString("_"), "_ are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"`\"@site.com"), .quotedString("`"), "` are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"{\"@site.com"), .quotedString("{"), "{ are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"|\"@site.com"), .quotedString("|"), "| are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"}\"@site.com"), .quotedString("}"), "} are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"~\"@site.com"), .quotedString("~"), "~ are allowed in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation(#""\\"@site.com"#), .quotedString("\\"), "Backslashes are allowed when escaped in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation(#""\t"@site.com"#), .quotedString("t"), "The next ascii (32-126) after a backslash is accepted as is so Blackslash-T isn't TAB but an actual t")
+        XCTAssertEqual(baseMailboxLocalPartValidation(#""\""@site.com"#), .quotedString(#"""#), "Double-quotes are allowed when escaped in quoted local part")
+        XCTAssertEqual(baseMailboxLocalPartValidation(#""email@notadomain.com"@site.com"#), .quotedString("email@notadomain.com"), "Since the @ is within the double quotes it is considered as the local part")
         XCTAssertNil(baseMailboxLocalPartValidation("\"\t\"@site.com"),"Tab is outside the 32-126 ascii range allowed in quoted text")
         XCTAssertNil(baseMailboxLocalPartValidation(#""\"@site.com"#),"The double-quote following the escape would have been escaped so the @site.com would still be part of the local part and no closing double-quotes would be found")
         XCTAssertNil(baseMailboxLocalPartValidation(#""email@notadomain.com""#), "Entire email address is within double-quotes so the whole thing would be considered the local part with no @ domain after the quotes this should be rejected")
@@ -129,14 +132,24 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: shouldBeInvalidEmail))
     }
     
-//    func testLocalPartWithQEncoding() {
-//        let testEmail = "=?iso-8851-1?q?Santa=20Claus@site.com?="
-//        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.localPart, .dotAtom("=?iso-8851-1?q?Santa=20Claus?="))
-//    }
-//
-//    func testLocalPartWithBEncoding() {
-//        let testEmail = "=?utf-8?B?7ZWcQHgu7ZWc6rWt?="
-//        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.localPart, .dotAtom("한"))
-//        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.host, .domain("x.한국"))
-//    }
+    func testAsciiRejectsUnicode() {
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "한@x.한국", strategy: .smtpHeader, compatibility: .ascii), "Unicode in email addresses should not be allowed in ASCII compatibility mode")
+    }
+    
+    func testUnicodeCompatibility() {
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "한@x.한국", strategy: .smtpHeader, compatibility: .unicode)?.localPart, .dotAtom("한"), "Unicode email addresses should be allowed in Unicode compatibility")
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "한.భారత్@x.한국", strategy: .smtpHeader, compatibility: .unicode)?.localPart, .dotAtom("한.భారత్"), "Unicode email addresses should be allowed in Unicode compatibility")
+    }
+    
+    func testLocalPartWithQEncoding() {
+        let testEmail = "=?iso-8859-1?q?\"Santa=20Claus\"@site.com?="
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.localPart, .quotedString("Santa Claus"))
+    }
+    
+    func testLocalPartWithBEncoding() {
+        let testEmail = "=?utf-8?B?7ZWcQHgu7ZWc6rWt?="
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.localPart, .dotAtom("한"))
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.host, .domain("x.한국"))
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: testEmail, compatibility: .ascii))
+    }
 }

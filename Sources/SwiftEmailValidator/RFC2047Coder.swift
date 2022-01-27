@@ -13,9 +13,9 @@ import Foundation
 public final class RFC2047Coder {
     
     private static let supportedEncoding: [String: String.Encoding] = [
-        "utf8": .utf8,
-        "utf16": .utf16,
-        "utf32": .utf32,
+        "utf-8": .utf8,
+        "utf-16": .utf16,
+        "utf-32": .utf32,
         "iso-8859-1": .isoLatin1,
         "iso-8859-2": .isoLatin2
     ]
@@ -62,7 +62,7 @@ public final class RFC2047Coder {
         }
         
         if encoding == "b" {
-            guard let encodedTextData = Data(base64Encoded: base64Padded(encodedText)),
+            guard let encodedTextData = Data(base64Encoded: Base64Padder.pad(encodedText)),
                   let decoded = String(data: encodedTextData, encoding: stringEncoding)
             else {
                 return nil
@@ -99,8 +99,8 @@ public final class RFC2047Coder {
             digitsCaptured += 1
             if digitsCaptured == 1 { continue nextCharacter }
             
-            guard value >= 32,
-                  value != 127,
+            guard value >= 0x20,
+                  value != 0xFF,
                   let decodedCharacter = String(data: Data([value]), encoding: stringEncoding)
             else {
                 return nil
@@ -113,11 +113,6 @@ public final class RFC2047Coder {
             return nil
         }
         return decoded
-    }
-    
-    private static func base64Padded(_ value: String) -> String {
-        let padding: [String] = ["","==","="]
-        return "\(value)\(padding[value.count % 3])"
     }
     
     private static func match(regex: String, to value: String) -> [[String]] {

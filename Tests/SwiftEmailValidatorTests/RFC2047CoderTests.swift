@@ -15,12 +15,14 @@ final class RFC2047CoderTests: XCTestCase {
         let base64 = value.data(using: .utf8)!
             .base64EncodedString()
             .replacingOccurrences(of: "=", with: "")
-        let rfc2047Encoded = "=?utf8?b?\(base64)?="
+        let rfc2047Encoded = "=?utf-8?b?\(base64)?="
         XCTAssertEqual(RFC2047Coder.decode(rfc2047Encoded), value)
     }
     
     func testDecodingLatin1Q() {
         XCTAssertEqual(RFC2047Coder.decode("=?iso-8859-1?q?h=E9ro@cinema.ca?="), "héro@cinema.ca")
+        XCTAssertEqual(RFC2047Coder.decode("=?iso-8859-1?q?Santa=20Claus?="), "Santa Claus")
+        XCTAssertEqual(RFC2047Coder.decode("=?iso-8859-1?q?\"Santa=20Claus\"@x=20.com?="), #""Santa Claus"@x .com"#)
     }
     
     func testDecodingInvalidCharset() {
@@ -40,7 +42,7 @@ final class RFC2047CoderTests: XCTestCase {
         let base64 = value.data(using: .utf8)!
             .base64EncodedString()
             .replacingOccurrences(of: "=", with: "")
-        let rfc2047Encoded = "=?utf8?b?\(base64)!@#$%^&*()?="
+        let rfc2047Encoded = "=?utf-8?b?\(base64)!@#$%^&*()?="
         XCTAssertNil(RFC2047Coder.decode(rfc2047Encoded), "If invalid characters are present within the expected base64 encoded text, decoding should fail")
     }
 
@@ -66,5 +68,9 @@ final class RFC2047CoderTests: XCTestCase {
     
     func testDecodingUnencoded() {
         XCTAssertNil(RFC2047Coder.decode("notEncoded@site.com"), "If the =? ?= signatures are missing, decoding should fail")
+    }
+    
+    func testDecodingUtf8Chinese() {
+        XCTAssertEqual(RFC2047Coder.decode("=?utf-8?B?7ZWcQHgu7ZWc6rWt?="), "한@x.한국")
     }
 }
