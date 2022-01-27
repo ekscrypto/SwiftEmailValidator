@@ -7,12 +7,9 @@
 
 import Foundation
 
-struct Base64Padder {
+internal struct Base64Padder {
     static func pad(_ value: String) -> String {
-        var padded = value
-        while padded.count % 4 != 0 {
-            padded += "="
-        }
-        return padded
+        let padding: [String] = ["", "===", "==", "="]
+        return "\(value)\(padding[value.count % 4])"
     }
 }
