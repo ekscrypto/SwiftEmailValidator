@@ -106,22 +106,25 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     
     func testEmailWithIPv4AddressLiteral() {
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: "Santa.Claus@[127.0.0.1]", allowAddressLiteral: false))
-        guard let mailbox = EmailSyntaxValidator.mailbox(from: "Santa.Claus@[127.0.0.1]", allowAddressLiteral: true) else {
-            XCTFail("When allowing address literals, email addresses should be valid if they specific @[<IPv4 Address>]")
-            return
-        }
-        XCTAssertEqual(mailbox.localPart, .dotAtom("Santa.Claus"))
-        XCTAssertEqual(mailbox.host, .addressLiteral("127.0.0.1"))
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "Santa.Claus@[127.0.0.1]", allowAddressLiteral: true)?.localPart, .dotAtom("Santa.Claus"), "When allowing address literals, email addresses should be valid if they specific @[<IPv4 Address>]")
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "Santa.Claus@[127.0.0.1]", allowAddressLiteral: true)?.host, .addressLiteral("127.0.0.1"), "When allowing address literals, email addresses should be valid if they specific @[<IPv4 Address>]")
+        XCTAssertTrue(EmailSyntaxValidator.correctlyFormatted("Santa.Claus@[127.0.0.1]", allowAddressLiteral: true))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("Santa.Claus@[127.0.0.1]", allowAddressLiteral: false))
     }
     
+    func testEmailWithIncorrectlyFormattedIPv4Literal() {
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("Santa.Claus@[127.0.0.1", allowAddressLiteral: true))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("Santa.Claus@127.0.0.1", allowAddressLiteral: true))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("Santa.Claus@[127.0.0.1].com", allowAddressLiteral: true))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("Santa.Claus@[127.0.0.1.]", allowAddressLiteral: true))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("Santa.Claus@[.127.0.0.1]", allowAddressLiteral: true))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("Santa.Claus@[127:0:0:1]", allowAddressLiteral: true))
+    }
+        
     func testEmailWithIPv6AddressLiteral() {
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: "Santa.Claus@[IPv6:fe80::1]", allowAddressLiteral: false))
-        guard let mailbox = EmailSyntaxValidator.mailbox(from: "Santa.Claus@[IPv6:fe80::1]", allowAddressLiteral: true) else {
-            XCTFail("When allowing address literals, email addresses should be valid if they specific @[IPv6:<IPv6 Address>]")
-            return
-        }
-        XCTAssertEqual(mailbox.localPart, .dotAtom("Santa.Claus"))
-        XCTAssertEqual(mailbox.host, .addressLiteral("IPv6:fe80::1"))
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "Santa.Claus@[IPv6:fe80::1]", allowAddressLiteral: true)?.localPart, .dotAtom("Santa.Claus"), "When allowing address literals, email addresses should be valid if they specific @[IPv6:<IPv6 Address>]")
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "Santa.Claus@[IPv6:fe80::1]", allowAddressLiteral: true)?.host, .addressLiteral("IPv6:fe80::1"), "When allowing address literals, email addresses should be valid if they specific @[IPv6:<IPv6 Address>]")
     }
     
     func testLocalPartMaximumLength() {
@@ -134,6 +137,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     
     func testAsciiRejectsUnicode() {
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: "한@x.한국", strategy: .smtpHeader, compatibility: .ascii), "Unicode in email addresses should not be allowed in ASCII compatibility mode")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "\"한\"@x.한국", strategy: .smtpHeader, compatibility: .ascii), "Unicode in email addresses should not be allowed in ASCII compatibility mode")
     }
     
     func testUnicodeCompatibility() {
@@ -151,5 +155,24 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.localPart, .dotAtom("한"))
         XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail)?.host, .domain("x.한국"))
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: testEmail, compatibility: .ascii))
+    }
+    
+    func testMissingAt() {
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("santa.claus"))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\"santa.claus\""))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\"santa.claus\"northpole.com"))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\"santa.claus@northpole.com"))
+    }
+    
+    func testQuotedLocalPartWithInvalidEscapeSequence() {
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\"test\\"))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted(#""santa\한"@northpole.com"#, compatibility: .ascii))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\"santa\n\"@northpole.com", compatibility: .ascii))
+    }
+    
+    func testQuotedLocalPartWithTooManyDquotes() {
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\"Test\"\"@northpole.com"))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\"Test\"@\"northpole.com"))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\"Test\".hello\"@northpole.com"))
     }
 }

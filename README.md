@@ -2,9 +2,12 @@
 
 # SwiftEmailValidator
 
-A Swift implementation of an international email address syntax validator based on RFC5321 & RFC5322. Since email addresses are 
-local @ remote the validator also includes IPAddressSyntaxValidator and EmailHostSyntaxValidator classes.  This 
-Swift Package does not require an Internet connection at runtime and is entirely self contained.
+A Swift implementation of an international email address syntax validator based on RFC822, RFC2047, RFC5321, RFC5322, and RFC6531. 
+Since email addresses are local @ remote the validator also includes IPAddressSyntaxValidator and EmailHostSyntaxValidator classes. 
+This Swift Package does not require an Internet connection at runtime and is entirely self contained.
+
+Note: Due to the high number of entries in the Public Suffix list, you may want to pre-load on a background thread the
+PublicSuffixRulesRegistry.rules prior to using EmailSyntaxValidator or EmailHostSyntaxValidator.
 
 ## Public Suffix List (regular updates required)
 
@@ -17,10 +20,32 @@ Public Suffix List last updated on 2022-01-22 10:48:00 EST
 
 ### EmailSyntaxValidator
 
-    if EmailSyntaxValidator.match("email@example.com") {
+    if EmailSyntaxValidator.correctlyFormatted("email@example.com") {
         print("email@example.com respects Email syntax rules")
     }
+    
+    if EmailSyntaxValidator.correctlyFormatted("email@[127.0.0.1]", allowAddressLiteral: true) {
+        print("email@[127.0.0.1] also respects since address literals are allowed")
+    }
+    
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "email@[IPv6:fe80::1]", allowAddressLiteral: true) {
+        // mailboxInfo.host == .addressLiteral("IPv6:fe80::1")
+    }
+    
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "santa.claus@northpole.com") {
+        // mailboxInfo.localPart == .dotAtom("santa.claus"
+        // mailboxInfo.host == .domain("northpole.com")
+    }
 
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "=?utf-8?B?7ZWcQHgu7ZWc6rWt?=", compatibility: .asciiWithUnicodeExtension) {
+        // mailboxInfo.localpart == .dotAtom("한")
+        // mailboxInfo.host == .domain("x.한국")
+    }
+    
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "\"santa.claus\"@northpole.com") {
+        // mailboxInfo.localPart == .quotedString("santa.claus")
+        // mailboxInfo.host == .domain("northpole.com"")
+    }
 
 ### IPAddressSyntaxValidator
 
