@@ -6,9 +6,11 @@
 //  Copyrights (C) 2022, Dave Poirier.  Distributed under MIT license
 //
 //  References:
+//  * RFC2047 https://datatracker.ietf.org/doc/html/rfc2047
 //  * RFC5321 https://datatracker.ietf.org/doc/html/rfc5321 Section 4.1.2 & Section 4.1.3
 //  * RFC5322 https://datatracker.ietf.org/doc/html/rfc5322 Section 3.2.3 & Section 3.4.1
 //  * RFC5234 https://datatracker.ietf.org/doc/html/rfc5234 Appendix B.1
+//  * RFC6531 https://datatracker.ietf.org/doc/html/rfc6531
 
 import Foundation
 
