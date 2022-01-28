@@ -81,6 +81,9 @@ Allows to decode Unicode email addresses from SMTP headers
 
 ## Reference Documents
 
+RFC822 - STANDARD FOR THE FORMAT OF ARPA INTERNET TEXT MESSAGES
+https://datatracker.ietf.org/doc/html/rfc822
+
 RFC2047 - MIME (Multipurpose Internet Mail Extensions) Part Three: Message Header Extensions for Non-ASCII Text
 https://datatracker.ietf.org/doc/html/rfc2047
 
@@ -89,6 +92,9 @@ https://datatracker.ietf.org/doc/html/rfc5321
 
 RFC5322 - Internet Message Format
 https://datatracker.ietf.org/doc/html/rfc5322
+
+RFC6531 - SMTP Extension for Internationalized Email
+https://datatracker.ietf.org/doc/html/rfc6531
 
 Public Suffix List
 https://publicsuffix.org
