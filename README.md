@@ -33,7 +33,7 @@ Public Suffix List last updated on 2022-01-29 21:33:00 EST
     }
     
     if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "santa.claus@northpole.com") {
-        // mailboxInfo.localPart == .dotAtom("santa.claus"
+        // mailboxInfo.localPart == .dotAtom("santa.claus")
         // mailboxInfo.host == .domain("northpole.com")
     }
 
