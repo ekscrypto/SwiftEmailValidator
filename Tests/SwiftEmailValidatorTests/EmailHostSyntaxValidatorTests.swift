@@ -93,4 +93,13 @@ class EmailHostSyntaxValidatorTests: XCTestCase {
         XCTAssertFalse(EmailHostSyntaxValidator.match("izumizaki.fukushima.jp", rules: [["izumizaki","fukushima","jp"]]),"A domain containing multiple labels perfectly match a defined public-suffix, it should not be allowed")
         XCTAssertFalse(EmailHostSyntaxValidator.match("izumizaki.fukushima.jp"))
     }
+    
+    func testEmptyRules() {
+        XCTAssertFalse(EmailHostSyntaxValidator.match("website.com", rules: []), "When no rules are specified, code should default to failed validation")
+        XCTAssertFalse(EmailHostSyntaxValidator.match("website.com", rules: [[]]), "When no rules are specified, code should default to failed validation")
+    }
+    
+    func testEmptyRulesIgnored() {
+        XCTAssertTrue(EmailHostSyntaxValidator.match("website.com", rules: [[], [], ["com"], []]), "Empty suffix rules should be ignored but rules with definitions should still be processed")
+    }
 }
