@@ -8212,6 +8212,7 @@ public final class PublicSuffixRulesRegistry {
     ["*", "kunden", "ortsinfo", "at"],
     ["*", "statics", "cloud"],
     ["service", "gov", "uk"],
+    ["api", "gov", "uk"],
     ["gehirn", "ne", "jp"],
     ["usercontent", "jp"],
     ["gentapps", "com"],

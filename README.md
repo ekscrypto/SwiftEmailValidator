@@ -14,7 +14,7 @@ PublicSuffixRulesRegistry.rules prior to using EmailSyntaxValidator or EmailHost
 Domains are validated against the [Public Suffix List](https://publicsuffix.org). To update the built-in suffix list
 (PublicSuffixRulesRegistry.swift) use the Utilities/update-suffix.swift script.
 
-Public Suffix List last updated on 2022-01-22 10:48:00 EST
+Public Suffix List last updated on 2022-01-29 21:33:00 EST
 
 ## Classes & Usage
 
