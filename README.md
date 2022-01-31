@@ -3,7 +3,8 @@
 # SwiftEmailValidator
 
 A Swift implementation of an international email address syntax validator based on RFC822, RFC2047, RFC5321, RFC5322, and RFC6531. 
-Since email addresses are local @ remote the validator also includes IPAddressSyntaxValidator and the SwiftPublicSuffixList library 
+Since email addresses are local @ remote the validator also includes IPAddressSyntaxValidator and the SwiftPublicSuffixList library.
+
 This Swift Package does not require an Internet connection at runtime and the only dependency is the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library.
 
 ## Public Suffix List
@@ -20,26 +21,15 @@ your application retrieve the latest copy of the public suffix list on a somewha
 
 ### EmailSyntaxValidator
 
+Simplest use-case:
+
     if EmailSyntaxValidator.correctlyFormatted("email@example.com") {
         print("email@example.com respects Email syntax rules")
     }
-    
-    if EmailSyntaxValidator.correctlyFormatted("email@[127.0.0.1]", allowAddressLiteral: true) {
-        print("email@[127.0.0.1] also respects since address literals are allowed")
-    }
-    
-    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "email@[IPv6:fe80::1]", allowAddressLiteral: true) {
-        // mailboxInfo.host == .addressLiteral("IPv6:fe80::1")
-    }
-    
+
     if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "santa.claus@northpole.com") {
         // mailboxInfo.localPart == .dotAtom("santa.claus")
         // mailboxInfo.host == .domain("northpole.com")
-    }
-
-    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "=?utf-8?B?7ZWcQHgu7ZWc6rWt?=", compatibility: .asciiWithUnicodeExtension) {
-        // mailboxInfo.localpart == .dotAtom("한")
-        // mailboxInfo.host == .domain("x.한국")
     }
     
     if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "\"santa.claus\"@northpole.com") {
@@ -47,6 +37,34 @@ your application retrieve the latest copy of the public suffix list on a somewha
         // mailboxInfo.host == .domain("northpole.com"")
     }
 
+Allowing IPv4/IPv6 addresses
+    
+    if EmailSyntaxValidator.correctlyFormatted("email@[127.0.0.1]", allowAddressLiteral: true) {
+        print("email@[127.0.0.1] also respects since address literals are allowed")
+    }
+    
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "email@[IPv6:fe80::1]", allowAddressLiteral: true) {
+        // mailboxInfo.localPart == .dotAtom("email")
+        // mailboxInfo.host == .addressLiteral("IPv6:fe80::1")
+    }
+
+Validating Unicode emails encoded into ASCII (RFC2047):
+    
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "=?utf-8?B?7ZWcQHgu7ZWc6rWt?=", compatibility: .asciiWithUnicodeExtension) {
+        // mailboxInfo.localpart == .dotAtom("한")
+        // mailboxInfo.host == .domain("x.한국")
+    }
+
+Forcing ASCII-only compatibility:
+
+    if !EmailSyntaxValidator.correctlyFormatted("한@x.한국", compatibility: .ascii) {
+        // invalid email for ASCII-only support
+    }
+    
+    if EmailSyntaxValidator.correctlyFormatted("hello@world.net", compatibility: .ascii) {
+        // Email is valid for ASCII-only systems
+    }
+    
 #### Using Custom SwiftPublicSuffixList Rules
 If you implement your own PublicSuffixList rules, or manage your own local copy of the rules as recommended:
 
