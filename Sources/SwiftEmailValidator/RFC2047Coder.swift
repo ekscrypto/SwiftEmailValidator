@@ -62,7 +62,10 @@ public final class RFC2047Coder {
         }
         
         if encoding == "b" {
-            guard let encodedTextData = Data(base64Encoded: Base64Padder.pad(encodedText)),
+            let padding: [String] = ["", "===", "==", "="]
+            let paddedEncodedText = "\(encodedText)\(padding[encodedText.count % 4])"
+            
+            guard let encodedTextData = Data(base64Encoded: paddedEncodedText),
                   let decoded = String(data: encodedTextData, encoding: stringEncoding)
             else {
                 return nil
@@ -72,6 +75,7 @@ public final class RFC2047Coder {
 
         assert(encoding == "q")
         guard [.isoLatin1, .isoLatin2].contains(stringEncoding) else {
+            // rejects 'q' encoding for utf-8, should be 'b' encoded.
             return nil
         }
         var decoded = ""

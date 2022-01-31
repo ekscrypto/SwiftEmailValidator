@@ -21,7 +21,7 @@ your application retrieve the latest copy of the public suffix list on a somewha
 
 ### EmailSyntaxValidator
 
-Simplest use-case:
+Simple use-cases:
 
     if EmailSyntaxValidator.correctlyFormatted("email@example.com") {
         print("email@example.com respects Email syntax rules")

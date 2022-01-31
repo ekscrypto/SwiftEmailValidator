@@ -73,4 +73,13 @@ final class RFC2047CoderTests: XCTestCase {
     func testDecodingUtf8Chinese() {
         XCTAssertEqual(RFC2047Coder.decode("=?utf-8?B?7ZWcQHgu7ZWc6rWt?="), "한@x.한국")
     }
+    
+    func testInvalidBase64String() {
+        XCTAssertNil(RFC2047Coder.decode("=?utf-8?B?7?="), "Not enough base64 characters to decode a full byte")
+        XCTAssertNil(RFC2047Coder.decode("=?utf-8?B?7x_?="), "Invalid base64 character _")
+    }
+    
+    func testDecodingUtf8QEncoded() {
+        XCTAssertNil(RFC2047Coder.decode("=?utf-8?Q?thisShouldNotWork@site.com?="), "Q encoding not currently supported for UTF-8 by this library, not sure it's even supported in any library..")
+    }
 }
