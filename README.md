@@ -3,18 +3,18 @@
 # SwiftEmailValidator
 
 A Swift implementation of an international email address syntax validator based on RFC822, RFC2047, RFC5321, RFC5322, and RFC6531. 
-Since email addresses are local @ remote the validator also includes IPAddressSyntaxValidator and EmailHostSyntaxValidator classes. 
-This Swift Package does not require an Internet connection at runtime and is entirely self contained.
+Since email addresses are local @ remote the validator also includes IPAddressSyntaxValidator and the SwiftPublicSuffixList library 
+This Swift Package does not require an Internet connection at runtime and the only dependency is the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library.
 
-Note: Due to the high number of entries in the Public Suffix list, you may want to pre-load on a background thread the
+## Public Suffix List
+
+By default, domains are validated against the [Public Suffix List](https://publicsuffix.org) using the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library.
+
+### Notes:
+* Due to the high number of entries in the Public Suffix list (>9k), you may want to pre-load on a background thread the
 PublicSuffixRulesRegistry.rules prior to using EmailSyntaxValidator or EmailHostSyntaxValidator.
-
-## Public Suffix List (regular updates required)
-
-Domains are validated against the [Public Suffix List](https://publicsuffix.org). To update the built-in suffix list
-(PublicSuffixRulesRegistry.swift) use the Utilities/update-suffix.swift script.
-
-Public Suffix List last updated on 2022-01-29 21:33:00 EST
+* The [Public Suffix List](https://publicsuffix.org) is updated regularly, if your application is published regularly you may be fine by simply pulling the latest version of the SwiftPublicSuffixList library.  However it is recommended to have
+your application retrieve the latest copy of the public suffix list on a somewhat regular basis.  Details on how to accomplish this are available in the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library page.
 
 ## Classes & Usage
 
@@ -47,6 +47,23 @@ Public Suffix List last updated on 2022-01-29 21:33:00 EST
         // mailboxInfo.host == .domain("northpole.com"")
     }
 
+#### Using Custom SwiftPublicSuffixList Rules
+If you implement your own PublicSuffixList rules, or manage your own local copy of the rules as recommended:
+
+    let customRules: [[String]] = [["com"]]
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "santa.claus@northpole.com", domainValidator: { PublicSuffixList.isUnrestricted($0, rules: customRules)}) {
+        // mailboxInfo.localPart == .dotAtom("santa.claus")
+        // mailboxInfo.host == .domain("northpole.com")
+    }
+
+#### Bypassing SwiftPublicSuffixList
+The EmailSyntaxValidator functions all accept a domainValidator closure, which by default uses the SwiftPublicSuffixList library.  This closure should return true if the domain should be considered valid, or false to be rejected.
+
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "santa.claus@Ho Ho Ho North Pole", domainValidator: { _ in true }) {
+        // mailboxInfo.localPart == .dotAtom("santa.claus")
+        // mailboxInfo.host == .domain("Ho Ho Ho North Pole")
+    }
+
 ### IPAddressSyntaxValidator
 
     if IPAddressSyntaxValidator.matchIPv6("::1") {
@@ -65,13 +82,6 @@ Public Suffix List last updated on 2022-01-29 21:33:00 EST
         print("fe80::1 is a valid IP address")
     }
 
-
-### EmailHostSyntaxValidator
-Validates if the email's host name is following expected syntax rules and whether it is part of a known public suffix. Does NOT validate if the domain actually exists or even allowed by the registrar.
-
-    if EmailHostSyntaxValidator.match("yahoo.com") {
-        print("yahoo.com has valid email host syntax")
-    }
 
 ### RFC2047Decoder
 Allows to decode Unicode email addresses from SMTP headers
@@ -95,6 +105,3 @@ https://datatracker.ietf.org/doc/html/rfc5322
 
 RFC6531 - SMTP Extension for Internationalized Email
 https://datatracker.ietf.org/doc/html/rfc6531
-
-Public Suffix List
-https://publicsuffix.org

@@ -11,6 +11,7 @@
 
 import XCTest
 @testable import SwiftEmailValidator
+import SwiftPublicSuffixList
 
 final class EmailSyntaxValidatorTests: XCTestCase {
     
@@ -18,7 +19,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         EmailSyntaxValidator.mailbox(
             from: candidate,
             allowAddressLiteral: false,
-            domainRules: [["com"]])?.localPart
+            domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})?.localPart
     }
     
     func testDotAtomLocalPart() {

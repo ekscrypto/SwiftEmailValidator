@@ -13,6 +13,7 @@
 //  * RFC6531 https://datatracker.ietf.org/doc/html/rfc6531
 
 import Foundation
+import SwiftPublicSuffixList
 
 public final class EmailSyntaxValidator {
     
@@ -48,19 +49,19 @@ public final class EmailSyntaxValidator {
     ///   - strategy: (Optional) ValidationStrategy to use, use .smtpHeader for strict validation or use UI strategy for some auto-formatting flexibility, Uses .smtpHeader by default.
     ///   - compatibility: (Optional) Compatibility required, one of .ascii (RFC822), .asciiWithUnicodeExtension (RFC2047) or .unicode (RFC6531). Uses .unicode by default.
     ///   - allowAddressLiteral: (Optional) True to allow IPv4 & IPv6 instead of domains in email addresses, false otherwise. False by default.
-    ///   - domainRules: (Optional) Public Suffix rules to apply to domain validation.  Uses Public Suffix List by default.
+    ///   - domainValidator: Non-escaping closure that return true if the domain should be considered valid or false to be rejected
     /// - Returns: True if syntax is valid (.smtpHeader validation strategy) or could be adapted to be valid (.userInterface validation strategy)
     public static func correctlyFormatted(_ candidate: String,
                                           strategy: ValidationStrategy = .smtpHeader,
                                           compatibility: Compatibility = .unicode,
                                           allowAddressLiteral: Bool = false,
-                                          domainRules: [[String]] = PublicSuffixRulesRegistry.rules) -> Bool {
+                                          domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted($0) }) -> Bool {
 
         mailbox(from: candidate,
                 strategy: strategy,
                 compatibility: compatibility,
                 allowAddressLiteral: allowAddressLiteral,
-                domainRules: domainRules) != nil
+                domainValidator: domainValidator) != nil
     }
     
     /// Attempt to extract the Local and Remote parts of the email address specified
@@ -69,32 +70,41 @@ public final class EmailSyntaxValidator {
     ///   - strategy: (Optional) ValidationStrategy to use, use .smtpHeader for strict validation or use UI strategy for some auto-formatting flexibility, Uses .smtpHeader by default.
     ///   - compatibility: (Optional) Compatibility required, one of .ascii (RFC822), .asciiWithUnicodeExtension (RFC2047) or .unicode (RFC6531). Uses .unicode by default.
     ///   - allowAddressLiteral: (Optional) True to allow IPv4 & IPv6 instead of domains in email addresses, false otherwise. False by default.
-    ///   - domainRules: (Optional) Public Suffix rules to apply to domain validation.  Uses Public Suffix List by default.
+    ///   - domainValidator: Non-escaping closure that return true if the domain should be considered valid or false to be rejected
     /// - Returns: Mailbox struct on success, nil otherwise
     public static func mailbox(from candidate: String,
                                strategy: ValidationStrategy = .smtpHeader,
                                compatibility: Compatibility = .unicode,
                                allowAddressLiteral: Bool = false,
-                               domainRules: [[String]] = PublicSuffixRulesRegistry.rules) -> Mailbox? {
+                               domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted($0) }) -> Mailbox? {
         
         var smtpCandidate: String = candidate
         if compatibility != .ascii, let decodedCandidate = RFC2047Coder.decode(candidate) {
             smtpCandidate = decodedCandidate
         }
 
-        let localPart: Mailbox.LocalPart
-        let nonLocalPart: String
         if let dotAtom = extractDotAtom(smtpCandidate, compatibility: compatibility) {
-            localPart = .dotAtom(dotAtom)
-            nonLocalPart = String(smtpCandidate.dropFirst(dotAtom.count + 1))
-        } else if let quotedString = extractQuotedString(smtpCandidate, compatibility: compatibility) {
-            localPart = .quotedString(String(quotedString.cleaned))
-            nonLocalPart = String(smtpCandidate.dropFirst(quotedString.integral.count + 1))
-        } else {
-            return nil
+            return mailbox(
+                localPart: .dotAtom(dotAtom),
+                hostCandidate: String(smtpCandidate.dropFirst(dotAtom.count + 1)),
+                allowAddressLiteral: allowAddressLiteral,
+                domainValidator: domainValidator)
         }
-
-        guard let host = extractHost(from: nonLocalPart, allowAddressLiteral: allowAddressLiteral, domainRules: domainRules) else {
+        
+        if let quotedString = extractQuotedString(smtpCandidate, compatibility: compatibility) {
+            return mailbox(
+                localPart: .quotedString(String(quotedString.cleaned)),
+                hostCandidate: String(smtpCandidate.dropFirst(quotedString.integral.count + 1)),
+                allowAddressLiteral: allowAddressLiteral,
+                domainValidator: domainValidator)
+        }
+        
+        return nil
+    }
+    
+    private static func mailbox(localPart: Mailbox.LocalPart, hostCandidate: String, allowAddressLiteral: Bool, domainValidator: (String) -> Bool) -> Mailbox? {
+        
+        guard let host = extractHost(from: hostCandidate, allowAddressLiteral: allowAddressLiteral, domainValidator: domainValidator) else {
             return nil
         }
         
@@ -103,29 +113,34 @@ public final class EmailSyntaxValidator {
             host: host)
     }
     
-    private static func extractHost(from candidate: String, allowAddressLiteral: Bool, domainRules: [[String]]) -> Mailbox.Host? {
+    private static func extractHost(from candidate: String, allowAddressLiteral: Bool, domainValidator: (String) -> Bool) -> Mailbox.Host? {
 
         if candidate.hasPrefix("[") {
-            guard allowAddressLiteral, candidate.hasSuffix("]") else {
-                return nil
-            }
-            let addressLiteralCandidate = String(candidate.dropFirst().dropLast()) // get rid of [ and ]
-            let ipv6Tag = "IPv6" // ref: https://www.iana.org/assignments/address-literal-tags/address-literal-tags.xhtml
-            
-            if addressLiteralCandidate.hasPrefix("\(ipv6Tag):"), IPAddressSyntaxValidator.matchIPv6(String(addressLiteralCandidate.dropFirst(ipv6Tag.count + 1))) {
-                return .addressLiteral(addressLiteralCandidate)
-            }
-            
-            guard IPAddressSyntaxValidator.matchIPv4(addressLiteralCandidate) else {
-                return nil
-            }
-            return .addressLiteral(addressLiteralCandidate)
+            return extractHostLiteral(from: candidate, allowAddressLiteral: allowAddressLiteral)
         }
 
-        guard EmailHostSyntaxValidator.match(candidate, rules: domainRules) else {
+        if domainValidator(candidate) {
+            return .domain(candidate)
+        }
+        
+        return nil
+    }
+    
+    private static func extractHostLiteral(from candidate: String, allowAddressLiteral: Bool) -> Mailbox.Host? {
+        guard allowAddressLiteral, candidate.hasSuffix("]") else {
             return nil
         }
-        return .domain(candidate)
+        let addressLiteralCandidate = String(candidate.dropFirst().dropLast()) // get rid of [ and ]
+        let ipv6Tag = "IPv6" // ref: https://www.iana.org/assignments/address-literal-tags/address-literal-tags.xhtml
+        
+        if addressLiteralCandidate.hasPrefix("\(ipv6Tag):"), IPAddressSyntaxValidator.matchIPv6(String(addressLiteralCandidate.dropFirst(ipv6Tag.count + 1))) {
+            return .addressLiteral(addressLiteralCandidate)
+        }
+        
+        guard IPAddressSyntaxValidator.matchIPv4(addressLiteralCandidate) else {
+            return nil
+        }
+        return .addressLiteral(addressLiteralCandidate)
     }
 
     private static let digitRange: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x30)!...Unicode.Scalar(0x39)! // 0-9
