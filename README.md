@@ -12,10 +12,11 @@ This Swift Package does not require an Internet connection at runtime and the on
 By default, domains are validated against the [Public Suffix List](https://publicsuffix.org) using the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library.
 
 ### Notes:
-* Due to the high number of entries in the Public Suffix list (>9k), you may want to pre-load on a background thread the
-PublicSuffixRulesRegistry.rules prior to using EmailSyntaxValidator or EmailHostSyntaxValidator.
-* The [Public Suffix List](https://publicsuffix.org) is updated regularly, if your application is published regularly you may be fine by simply pulling the latest version of the SwiftPublicSuffixList library.  However it is recommended to have
-your application retrieve the latest copy of the public suffix list on a somewhat regular basis.  Details on how to accomplish this are available in the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library page.
+* Due to the high number of entries in the Public Suffix list (>9k), the first validation may add 100ms to 900ms depending on the device you are using.  If this is unacceptable you can
+ pre-load on a background thread PublicSuffixRulesRegistry.rules prior to using EmailSyntaxValidator.
+* The [Public Suffix List](https://publicsuffix.org) is updated regularly. If your application is published regularly you may be fine by simply pulling the latest version of the SwiftPublicSuffixList library.  However it is recommended to have
+your application retrieve the latest copy of the public suffix list on a somewhat regular basis.  Details on how to accomplish this are available in the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library page.  You can then use the domainValidator parameter to specify the closure to use for the domain validation.  See "Using Custom SwiftPublicSuffixList Rules" below.
+* You can bypass the Public Suffix List altogether and use your own custom Regex if desired. See "Bypassing SwiftPublicSuffixList" below.
 
 ## Classes & Usage
 
@@ -32,8 +33,8 @@ Simple use-cases:
         // mailboxInfo.host == .domain("northpole.com")
     }
     
-    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "\"santa.claus\"@northpole.com") {
-        // mailboxInfo.localPart == .quotedString("santa.claus")
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "\"Santa Claus\"@northpole.com") {
+        // mailboxInfo.localPart == .quotedString("Santa Claus")
         // mailboxInfo.host == .domain("northpole.com"")
     }
 
@@ -102,10 +103,13 @@ The EmailSyntaxValidator functions all accept a domainValidator closure, which b
 
 
 ### RFC2047Decoder
-Allows to decode Unicode email addresses from SMTP headers
+Allows to decode ASCII-encoded Latin-1/Latin-2/Unicode email addresses from SMTP headers
 
     print(RFC2047Decoder.decode("=?iso-8859-1?q?h=E9ro\@site.com?=")) 
     // héro@site.com
+    
+    print(RFC2047Decoder.decode("=?utf-8?B?7ZWcQHgu7ZWc6rWt?="))
+    // 한@x.한국
 
 ## Reference Documents
 
