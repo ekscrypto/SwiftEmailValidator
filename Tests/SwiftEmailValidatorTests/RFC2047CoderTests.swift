@@ -82,4 +82,8 @@ final class RFC2047CoderTests: XCTestCase {
     func testDecodingUtf8QEncoded() {
         XCTAssertNil(RFC2047Coder.decode("=?utf-8?Q?thisShouldNotWork@site.com?="), "Q encoding not currently supported for UTF-8 by this library, not sure it's even supported in any library..")
     }
+    
+    func testEncoding() {
+        XCTAssertEqual(RFC2047Coder.encode("한@x.한국"), "=?utf-8?b?7ZWcQHgu7ZWc6rWt?=")
+    }
 }
