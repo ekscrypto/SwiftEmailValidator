@@ -7,6 +7,21 @@ Since email addresses are local @ remote the validator also includes IPAddressSy
 
 This Swift Package does not require an Internet connection at runtime and the only dependency is the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library.
 
+## Installation
+### Swift Package Manager (SPM)
+
+You can use The Swift Package Manager to install SwiftEmailValidator by adding it to your Package.swift file:
+
+    import PackageDescription
+
+    let package = Package(
+        name: "MyApp",
+        targets: [],
+        dependencies: [
+            .Package(url: "https://github.com/ekscrypto/SwiftEmailValidator.git", .upToNextMajor(from: "1.0.0"))
+        ]
+    )
+
 ## Public Suffix List
 
 By default, domains are validated against the [Public Suffix List](https://publicsuffix.org) using the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library.
