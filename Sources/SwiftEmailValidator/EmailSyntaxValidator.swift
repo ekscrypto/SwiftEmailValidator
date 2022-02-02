@@ -18,6 +18,7 @@ import SwiftPublicSuffixList
 public final class EmailSyntaxValidator {
     
     public struct Mailbox {
+        let email: String
         let localPart: LocalPart
         let host: Host
 
@@ -32,9 +33,8 @@ public final class EmailSyntaxValidator {
         }
     }
     
-    public enum ValidationStrategy {
-        case smtpHeader // will detect and decode =? encoded email addresses
-        case userInterface // will validate email can be encoded to desired smtp compatibility
+    public enum Options: Equatable {
+        case autoEncodeToRfc2047 // If using .asciiWithUnicodeExtension and string is in Unicode, will auto encode using RFC2047
     }
     
     public enum Compatibility {
@@ -46,19 +46,19 @@ public final class EmailSyntaxValidator {
     /// Verify if the email address is correctly formatted
     /// - Parameters:
     ///   - candidate: String to validate
-    ///   - strategy: (Optional) ValidationStrategy to use, use .smtpHeader for strict validation or use UI strategy for some auto-formatting flexibility, Uses .smtpHeader by default.
+    ///   - strategy: (Optional) ValidationStrategy to use, use .strict for strict validation or use .autoEncodeToRfc2047 for some auto-formatting flexibility, Uses .strict by default.
     ///   - compatibility: (Optional) Compatibility required, one of .ascii (RFC822), .asciiWithUnicodeExtension (RFC2047) or .unicode (RFC6531). Uses .unicode by default.
     ///   - allowAddressLiteral: (Optional) True to allow IPv4 & IPv6 instead of domains in email addresses, false otherwise. False by default.
     ///   - domainValidator: Non-escaping closure that return true if the domain should be considered valid or false to be rejected
     /// - Returns: True if syntax is valid (.smtpHeader validation strategy) or could be adapted to be valid (.userInterface validation strategy)
     public static func correctlyFormatted(_ candidate: String,
-                                          strategy: ValidationStrategy = .smtpHeader,
+                                          options: [Options] = [],
                                           compatibility: Compatibility = .unicode,
                                           allowAddressLiteral: Bool = false,
                                           domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted($0) }) -> Bool {
 
         mailbox(from: candidate,
-                strategy: strategy,
+                options: options,
                 compatibility: compatibility,
                 allowAddressLiteral: allowAddressLiteral,
                 domainValidator: domainValidator) != nil
@@ -73,28 +73,46 @@ public final class EmailSyntaxValidator {
     ///   - domainValidator: Non-escaping closure that return true if the domain should be considered valid or false to be rejected
     /// - Returns: Mailbox struct on success, nil otherwise
     public static func mailbox(from candidate: String,
-                               strategy: ValidationStrategy = .smtpHeader,
+                               options: [Options] = [],
                                compatibility: Compatibility = .unicode,
                                allowAddressLiteral: Bool = false,
                                domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted($0) }) -> Mailbox? {
         
         var smtpCandidate: String = candidate
-        if compatibility != .ascii, let decodedCandidate = RFC2047Coder.decode(candidate) {
-            smtpCandidate = decodedCandidate
+        var extractionCompatibility: Compatibility = compatibility
+        if compatibility != .ascii {
+            if let decodedCandidate = RFC2047Coder.decode(candidate) {
+                smtpCandidate = decodedCandidate
+                extractionCompatibility = .unicode
+            } else {
+                // Failed RFC2047 SMTP Unicode Extension decoding, fallback to ASCII or full Unicode
+                extractionCompatibility = (compatibility == .asciiWithUnicodeExtension ? .ascii : .unicode)
+            }
         }
 
-        if let dotAtom = extractDotAtom(smtpCandidate, compatibility: compatibility) {
+        if let dotAtom = extractDotAtom(smtpCandidate, compatibility: extractionCompatibility) {
             return mailbox(
                 localPart: .dotAtom(dotAtom),
+                originalCandidate: candidate,
                 hostCandidate: String(smtpCandidate.dropFirst(dotAtom.count + 1)),
                 allowAddressLiteral: allowAddressLiteral,
                 domainValidator: domainValidator)
         }
         
-        if let quotedString = extractQuotedString(smtpCandidate, compatibility: compatibility) {
+        if let quotedString = extractQuotedString(smtpCandidate, compatibility: extractionCompatibility) {
             return mailbox(
                 localPart: .quotedString(String(quotedString.cleaned)),
+                originalCandidate: candidate,
                 hostCandidate: String(smtpCandidate.dropFirst(quotedString.integral.count + 1)),
+                allowAddressLiteral: allowAddressLiteral,
+                domainValidator: domainValidator)
+        }
+        
+        if options.contains(.autoEncodeToRfc2047), let rfc2047candidate = candidateForRfc2047(candidate, compatibility: compatibility) {
+            return mailbox(
+                from: rfc2047candidate,
+                options: [],
+                compatibility: compatibility,
                 allowAddressLiteral: allowAddressLiteral,
                 domainValidator: domainValidator)
         }
@@ -102,13 +120,38 @@ public final class EmailSyntaxValidator {
         return nil
     }
     
-    private static func mailbox(localPart: Mailbox.LocalPart, hostCandidate: String, allowAddressLiteral: Bool, domainValidator: (String) -> Bool) -> Mailbox? {
+    /// Attempt to repackage a Unicode email into an RFC2047 encoded email (will return nil if string doesn't contain Unicode characters)
+    /// - Parameters:
+    ///   - candidate: String that originally failed SMTP validation that should be RFC2047 encoded if possible
+    ///   - compatibility: Required compatibility level
+    /// - Returns: Repackaged email string (may still fail SMTP validation) or nil if really nothing that could be done
+    private static func candidateForRfc2047(_ candidate: String, compatibility: Compatibility) -> String? {
+        
+        guard compatibility == .asciiWithUnicodeExtension,
+              !candidate.hasPrefix("=?"),
+              candidate.rangeOfCharacter(from: qtextUnicodeSMTPCharacterSet.inverted) == nil
+        else {
+            // There are some unsupported ASCII characters which are invalid regardless of unicode or ASCII (newline, tabs, etc)
+            return nil
+        }
+
+        guard candidate.rangeOfCharacter(from: CharacterSet(charactersIn: asciiRange).inverted) != nil else {
+            // There are no Unicode characters to encode, so the string was already validated to the maximum extent allowed
+            return nil
+        }
+        
+        // Some non-ASCII characters are present, and we can RFC2047 encode it
+        return RFC2047Coder.encode(candidate)
+    }
+    
+    private static func mailbox(localPart: Mailbox.LocalPart, originalCandidate: String, hostCandidate: String, allowAddressLiteral: Bool, domainValidator: (String) -> Bool) -> Mailbox? {
         
         guard let host = extractHost(from: hostCandidate, allowAddressLiteral: allowAddressLiteral, domainValidator: domainValidator) else {
             return nil
         }
         
         return Mailbox(
+            email: originalCandidate,
             localPart: localPart,
             host: host)
     }

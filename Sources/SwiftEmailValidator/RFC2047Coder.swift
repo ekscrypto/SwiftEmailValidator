@@ -119,6 +119,15 @@ public final class RFC2047Coder {
         return decoded
     }
     
+    public static func encode(_ candidate: String) -> String? {
+        guard let utf8data = candidate.data(using: .utf8) else {
+            return nil
+        }
+        let base64 = utf8data.base64EncodedString()
+            .replacingOccurrences(of: "=", with: "")
+        return "=?utf-8?b?\(base64)?="
+    }
+    
     private static func match(regex: String, to value: String) -> [[String]] {
         let nsValue: NSString = value as NSString
         return (try? NSRegularExpression(pattern: regex, options: []))?.matches(in: value, options: [], range: NSMakeRange(0, nsValue.length)).map { match in

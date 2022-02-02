@@ -29,11 +29,13 @@ Simple use-cases:
     }
 
     if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "santa.claus@northpole.com") {
+        // mailboxInfo.email == "santa.claus@northpole.com"
         // mailboxInfo.localPart == .dotAtom("santa.claus")
         // mailboxInfo.host == .domain("northpole.com")
     }
     
     if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "\"Santa Claus\"@northpole.com") {
+        // mailboxInfo.email == "\"Santa Claus\"@northpole.com"
         // mailboxInfo.localPart == .quotedString("Santa Claus")
         // mailboxInfo.host == .domain("northpole.com"")
     }
@@ -45,6 +47,7 @@ Allowing IPv4/IPv6 addresses
     }
     
     if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "email@[IPv6:fe80::1]", allowAddressLiteral: true) {
+        // mailboxInfo.email == "email@[IPv6:fe80::1]"
         // mailboxInfo.localPart == .dotAtom("email")
         // mailboxInfo.host == .addressLiteral("IPv6:fe80::1")
     }
@@ -52,6 +55,15 @@ Allowing IPv4/IPv6 addresses
 Validating Unicode emails encoded into ASCII (RFC2047):
     
     if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "=?utf-8?B?7ZWcQHgu7ZWc6rWt?=", compatibility: .asciiWithUnicodeExtension) {
+        // mailboxInfo.email == "=?utf-8?B?7ZWcQHgu7ZWc6rWt?="
+        // mailboxInfo.localpart == .dotAtom("한")
+        // mailboxInfo.host == .domain("x.한국")
+    }
+
+Validating Unicode emails with auto-RFC2047 encoding:
+
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "한@x.한국", options: [.autoEncodeToRfc2047], compatibility.asciiWithUnicodeExtension) {
+        // mailboxInfo.email == "=?utf-8?b?7ZWcQHgu7ZWc6rWt?="
         // mailboxInfo.localpart == .dotAtom("한")
         // mailboxInfo.host == .domain("x.한국")
     }

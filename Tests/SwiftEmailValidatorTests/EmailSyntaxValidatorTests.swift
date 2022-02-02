@@ -137,13 +137,13 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     }
     
     func testAsciiRejectsUnicode() {
-        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "한@x.한국", strategy: .smtpHeader, compatibility: .ascii), "Unicode in email addresses should not be allowed in ASCII compatibility mode")
-        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "\"한\"@x.한국", strategy: .smtpHeader, compatibility: .ascii), "Unicode in email addresses should not be allowed in ASCII compatibility mode")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "한@x.한국", compatibility: .ascii), "Unicode in email addresses should not be allowed in ASCII compatibility mode")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "\"한\"@x.한국", compatibility: .ascii), "Unicode in email addresses should not be allowed in ASCII compatibility mode")
     }
     
     func testUnicodeCompatibility() {
-        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "한@x.한국", strategy: .smtpHeader, compatibility: .unicode)?.localPart, .dotAtom("한"), "Unicode email addresses should be allowed in Unicode compatibility")
-        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "한.భారత్@x.한국", strategy: .smtpHeader, compatibility: .unicode)?.localPart, .dotAtom("한.భారత్"), "Unicode email addresses should be allowed in Unicode compatibility")
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "한@x.한국", compatibility: .unicode)?.localPart, .dotAtom("한"), "Unicode email addresses should be allowed in Unicode compatibility")
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "한.భారత్@x.한국", compatibility: .unicode)?.localPart, .dotAtom("한.భారత్"), "Unicode email addresses should be allowed in Unicode compatibility")
     }
     
     func testLocalPartWithQEncoding() {
@@ -175,5 +175,21 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\"Test\"\"@northpole.com"))
         XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\"Test\"@\"northpole.com"))
         XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\"Test\".hello\"@northpole.com"))
+    }
+    
+    func testAsciiWithUnicodeExtension() {
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("한@x.한국", options: [], compatibility: .asciiWithUnicodeExtension), "Unicode characters not properly encoded should be rejected")
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("한@x.한국", options: [.autoEncodeToRfc2047], compatibility: .ascii), "Option .autoEncodeToRfc2047 should be ignored in pure ASCII compatibility mode")
+        XCTAssertTrue(EmailSyntaxValidator.correctlyFormatted("한@x.한국", options: [.autoEncodeToRfc2047], compatibility: .asciiWithUnicodeExtension), "Improperly encoded Unicode characters should be automatically RFC2047 encoded when .autoEncodeToRfc2047 option is specified")
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "한@x.한국", options: [.autoEncodeToRfc2047], compatibility: .asciiWithUnicodeExtension)?.email, "=?utf-8?b?7ZWcQHgu7ZWc6rWt?=")
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "한@x.한국", options: [.autoEncodeToRfc2047], compatibility: .asciiWithUnicodeExtension)?.localPart, .dotAtom("한"))
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "한@x.한국", options: [.autoEncodeToRfc2047], compatibility: .asciiWithUnicodeExtension)?.host, .domain("x.한국"))
+    }
+    
+    func testAutoEncodeToRfc2047Guards() {
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("=?utf-8?b?7ZWcQHgu7ZWc6rWt?=", options: [.autoEncodeToRfc2047], compatibility: .ascii))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\nHello@this.com", options: [.autoEncodeToRfc2047], compatibility: .ascii))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("\nHello@this.com", options: [.autoEncodeToRfc2047], compatibility: .unicode))
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("1234567890123456789012345678901234567890123456789012345678901234567890@this.com", options: [.autoEncodeToRfc2047], compatibility: .asciiWithUnicodeExtension))
     }
 }
