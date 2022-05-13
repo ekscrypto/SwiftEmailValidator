@@ -4,6 +4,11 @@ import PackageDescription
 
 let package = Package(
     name: "SwiftEmailValidator",
+    platforms: [
+            .macOS(.v10_12),
+            .iOS(.v11),
+            .tvOS(.v11)
+        ],
     products: [
         .library(
             name: "SwiftEmailValidator",
