@@ -17,7 +17,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/ekscrypto/SwiftPublicSuffixList.git",
-            .upToNextMajor(from: "1.0.0")
+            .upToNextMajor(from: "1.1.4")
         ),
     ],
     targets: [
