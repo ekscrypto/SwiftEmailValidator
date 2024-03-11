@@ -18,9 +18,9 @@ import SwiftPublicSuffixList
 public final class EmailSyntaxValidator {
     
     public struct Mailbox {
-        let email: String
-        let localPart: LocalPart
-        let host: Host
+        public let email: String
+        public let localPart: LocalPart
+        public let host: Host
 
         public enum LocalPart: Equatable {
             case dotAtom(String)
