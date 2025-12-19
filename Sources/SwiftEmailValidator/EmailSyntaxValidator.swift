@@ -7,10 +7,12 @@
 //
 //  References:
 //  * RFC2047 https://datatracker.ietf.org/doc/html/rfc2047
+//  * RFC5198 https://datatracker.ietf.org/doc/html/rfc5198 (Unicode Format for Network Interchange)
 //  * RFC5321 https://datatracker.ietf.org/doc/html/rfc5321 Section 4.1.2 & Section 4.1.3
 //  * RFC5322 https://datatracker.ietf.org/doc/html/rfc5322 Section 3.2.3 & Section 3.4.1
 //  * RFC5234 https://datatracker.ietf.org/doc/html/rfc5234 Appendix B.1
 //  * RFC6531 https://datatracker.ietf.org/doc/html/rfc6531
+//  * RFC6532 https://datatracker.ietf.org/doc/html/rfc6532
 
 import Foundation
 import SwiftPublicSuffixList
@@ -194,8 +196,38 @@ public final class EmailSyntaxValidator {
         .union(CharacterSet(charactersIn: digitRange))
         .union(CharacterSet(charactersIn: #"!#$%&'*+-/=?^_`{|}~"#)) // Ref RFC5322 section 3.2.3 Atom, definition of atext
     private static let asciiRange: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x00)!...Unicode.Scalar(0x7F)!
+
+    // RFC6531 extends atext to include UTF8-non-ascii (U+0080+)
+    // RFC5198 Section 2: Control characters (U+0000-U+001F, U+007F-U+009F) should be avoided
+    // We also exclude other problematic characters per security best practices:
+    // - Bidirectional formatting characters (U+200E-U+200F, U+202A-U+202E, U+2066-U+2069)
+    // - Deprecated format characters (U+206A-U+206F)
+    private static let c1ControlRange: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x80)!...Unicode.Scalar(0x9F)! // C1 control chars
+    private static let bidiFormattingChars: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0x200E)!...Unicode.Scalar(0x200F)!) // LRM, RLM
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x202A)!...Unicode.Scalar(0x202E)!)) // LRE, RLE, PDF, LRO, RLO
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x2066)!...Unicode.Scalar(0x2069)!)) // LRI, RLI, FSI, PDI
+    private static let deprecatedFormatChars: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0x206A)!...Unicode.Scalar(0x206F)!) // Deprecated formatting
+
+    // Note: CharacterSet.inverted doesn't properly include supplementary planes (U+10000+)
+    // We must explicitly include them. Unicode planes:
+    // - BMP (U+0000-U+FFFF) - included via asciiRange.inverted
+    // - SMP (U+10000-U+1FFFF) - Supplementary Multilingual Plane (emoji, historic scripts)
+    // - SIP (U+20000-U+2FFFF) - Supplementary Ideographic Plane (CJK)
+    // - TIP (U+30000-U+3FFFF) - Tertiary Ideographic Plane
+    // - Planes 4-13 (U+40000-U+DFFFF) - Unassigned
+    // - SSP (U+E0000-U+EFFFF) - Supplementary Special-purpose Plane
+    // - PUA (U+F0000-U+10FFFF) - Private Use Areas
+    private static let supplementaryPlanes: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0x10000)!...Unicode.Scalar(0x10FFFF)!)
+
+    // Note: CharacterSet has a bug where .subtracting() corrupts supplementary plane data
+    // We must add supplementaryPlanes LAST, after all subtractions are complete
     private static let atextUnicodeCharacterSet: CharacterSet = atextCharacterSet
-        .union(CharacterSet(charactersIn: asciiRange).inverted)
+        .union(CharacterSet(charactersIn: asciiRange).inverted) // BMP non-ASCII
+        .subtracting(CharacterSet(charactersIn: c1ControlRange)) // Exclude C1 control characters per RFC5198
+        .subtracting(bidiFormattingChars) // Exclude bidirectional formatting (security)
+        .subtracting(deprecatedFormatChars) // Exclude deprecated format characters
+        .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
+
     private static let quotedPairSMTP: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x20)!...Unicode.Scalar(0x7E)!
     private static let qtextSMTP1: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x20)!...Unicode.Scalar(0x21)!
     private static let qtextSMTP2: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x23)!...Unicode.Scalar(0x5B)!
@@ -203,8 +235,14 @@ public final class EmailSyntaxValidator {
     private static let qtextSMTPCharacterSet: CharacterSet = CharacterSet(charactersIn: qtextSMTP1)
         .union(CharacterSet(charactersIn: qtextSMTP2))
         .union(CharacterSet(charactersIn: qtextSMTP3))
+    // Note: CharacterSet has a bug where .subtracting() corrupts supplementary plane data
+    // We must add supplementaryPlanes LAST, after all subtractions are complete
     private static let qtextUnicodeSMTPCharacterSet = qtextSMTPCharacterSet
-        .union(CharacterSet(charactersIn: asciiRange).inverted)
+        .union(CharacterSet(charactersIn: asciiRange).inverted) // BMP non-ASCII
+        .subtracting(CharacterSet(charactersIn: c1ControlRange)) // Exclude C1 control characters per RFC5198
+        .subtracting(bidiFormattingChars) // Exclude bidirectional formatting (security)
+        .subtracting(deprecatedFormatChars) // Exclude deprecated format characters
+        .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
     private static func extractDotAtom(_ candidate: String, compatibility: Compatibility) -> String? {
         guard !candidate.hasPrefix("\""),
