@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### DocC Documentation
+- **EmailSyntaxValidator**: Class-level documentation with usage examples
+- **Mailbox**: Struct and property documentation (`email`, `localPart`, `host`)
+- **LocalPart/Host enums**: Case documentation for `dotAtom`, `quotedString`, `domain`, `addressLiteral`
+- **Options enum**: Documentation for `autoEncodeToRfc2047` option
+- **Compatibility enum**: Detailed documentation for `ascii`, `asciiWithUnicodeExtension`, `unicode` modes
+- **RFC2047Coder**: Class documentation with encoding examples, `encode()` and `decode()` method documentation
+- **IPAddressSyntaxValidator**: Class documentation explaining RFC 5321 context
+
 #### New Unit Tests (48 tests across 3 files)
 
 **EmailSyntaxValidatorTests.swift**
