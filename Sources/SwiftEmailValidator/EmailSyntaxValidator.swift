@@ -17,31 +17,94 @@
 import Foundation
 import SwiftPublicSuffixList
 
+/// An RFC-compliant email syntax validator supporting international email addresses.
+///
+/// `EmailSyntaxValidator` validates email format without requiring network access.
+/// It supports three compatibility modes for different RFC standards:
+/// - `.ascii`: RFC 5322 (traditional ASCII-only emails)
+/// - `.asciiWithUnicodeExtension`: RFC 2047 (encoded Unicode for ASCII-only systems)
+/// - `.unicode`: RFC 6531 (full internationalized email addresses)
+///
+/// ## Usage
+/// ```swift
+/// // Simple validation
+/// let isValid = EmailSyntaxValidator.correctlyFormatted("user@example.com")
+///
+/// // Parse email into components
+/// if let mailbox = EmailSyntaxValidator.mailbox(from: "user@example.com") {
+///     print(mailbox.localPart) // .dotAtom("user")
+///     print(mailbox.host)      // .domain("example.com")
+/// }
+/// ```
 public final class EmailSyntaxValidator {
-    
+
+    /// A parsed email address containing the local part and host components.
+    ///
+    /// A `Mailbox` represents a successfully validated email address that has been
+    /// decomposed into its constituent parts according to RFC 5321.
     public struct Mailbox {
+        /// The original email address string that was validated.
         public let email: String
+
+        /// The local part of the email address (the portion before the `@` symbol).
         public let localPart: LocalPart
+
+        /// The host part of the email address (the portion after the `@` symbol).
         public let host: Host
 
+        /// The format of the local part of an email address.
+        ///
+        /// Per RFC 5321, the local part can be either a dot-atom (simple format like `user.name`)
+        /// or a quoted string (allowing special characters like `"user name"`).
         public enum LocalPart: Equatable {
+            /// A dot-atom format local part (e.g., `user.name`).
             case dotAtom(String)
+            /// A quoted-string format local part (e.g., `"user name"`).
             case quotedString(String)
         }
-        
+
+        /// The format of the host part of an email address.
+        ///
+        /// Per RFC 5321, the host can be either a domain name or an address literal (IP address).
         public enum Host: Equatable {
+            /// A domain name host (e.g., `example.com`).
             case domain(String)
+            /// An IP address literal host (e.g., `192.168.1.1` or `IPv6:2001:db8::1`).
             case addressLiteral(String)
         }
     }
     
+    /// Validation options that modify the behavior of email validation.
     public enum Options: Equatable {
-        case autoEncodeToRfc2047 // If using .asciiWithUnicodeExtension and string is in Unicode, will auto encode using RFC2047
+        /// Automatically encode Unicode email addresses using RFC 2047 when using `.asciiWithUnicodeExtension` compatibility.
+        ///
+        /// When this option is enabled and the input contains Unicode characters that cannot be
+        /// validated as-is with `.asciiWithUnicodeExtension` compatibility, the validator will
+        /// attempt to encode the email using RFC 2047 before validation.
+        case autoEncodeToRfc2047
     }
-    
+
+    /// The RFC compatibility mode for email validation.
+    ///
+    /// Different email systems support different character sets. Use the appropriate
+    /// compatibility mode based on your target system's capabilities.
     public enum Compatibility {
+        /// ASCII-only validation per RFC 5322.
+        ///
+        /// Only allows characters in the ASCII range (0x00-0x7F) in the local part.
+        /// Use this for maximum compatibility with legacy email systems.
         case ascii
+
+        /// ASCII with RFC 2047 encoded Unicode extension.
+        ///
+        /// Allows Unicode characters that have been encoded using RFC 2047 MIME encoding.
+        /// This enables international characters on systems that only support ASCII transport.
         case asciiWithUnicodeExtension
+
+        /// Full Unicode support per RFC 6531 (SMTPUTF8).
+        ///
+        /// Allows Unicode characters directly in the email address without encoding.
+        /// Requires SMTPUTF8-capable mail servers for delivery.
         case unicode
     }
     

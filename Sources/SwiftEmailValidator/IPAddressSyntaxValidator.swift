@@ -7,6 +7,15 @@
 
 import Foundation
 
+/// Validates IPv4 and IPv6 address syntax for use in email address literals.
+///
+/// This validator is used internally by `EmailSyntaxValidator` to validate IP address
+/// literals in email hosts when `allowAddressLiteral: true` is specified.
+///
+/// Per RFC 5321, email addresses can use IP address literals instead of domain names
+/// in the format `user@[192.168.1.1]` for IPv4 or `user@[IPv6:2001:db8::1]` for IPv6.
+///
+/// - Note: Zone identifiers (e.g., `%eth0`) are not allowed per RFC 5321 for email addresses.
 final public class IPAddressSyntaxValidator {
     
     

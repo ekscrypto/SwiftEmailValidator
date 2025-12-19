@@ -10,6 +10,26 @@
 
 import Foundation
 
+/// Encodes and decodes email addresses using RFC 2047 MIME encoding.
+///
+/// RFC 2047 allows non-ASCII characters to be represented in email headers using
+/// ASCII-compatible encoding. This is useful for international email addresses
+/// on systems that only support ASCII transport.
+///
+/// ## Supported Encodings
+/// - Base64 ('b' encoding) for UTF-8, UTF-16, and UTF-32
+/// - Quoted-Printable ('q' encoding) for ISO-8859-1 and ISO-8859-2
+///
+/// ## Usage
+/// ```swift
+/// // Encode a Unicode email address
+/// let encoded = RFC2047Coder.encode("用户@example.com")
+/// // Returns: "=?utf-8?b?55So5oi3QGV4YW1wbGUuY29t?="
+///
+/// // Decode an RFC 2047 encoded string
+/// let decoded = RFC2047Coder.decode("=?utf-8?b?55So5oi3?=")
+/// // Returns: "用户"
+/// ```
 public final class RFC2047Coder {
     
     private static let supportedEncoding: [String: String.Encoding] = [
@@ -44,7 +64,19 @@ public final class RFC2047Coder {
         "F": 15
     ]
     private static let rfc2047regex = #"^=\?([A-Za-z0-9-]+)\?([bBqQ])\?(.*)\?=$"#
-    
+
+    /// Decodes an RFC 2047 encoded string.
+    ///
+    /// - Parameter encoded: The RFC 2047 encoded string in the format `=?charset?encoding?text?=`
+    /// - Returns: The decoded string, or `nil` if decoding fails or the input is not valid RFC 2047 format
+    ///
+    /// ## Supported Formats
+    /// - Base64 encoding (`b`): `=?utf-8?b?base64text?=`
+    /// - Quoted-Printable encoding (`q`): `=?iso-8859-1?q?quoted=20text?=`
+    ///
+    /// ## Limitations
+    /// - Maximum input length: 76 characters (per RFC 2047)
+    /// - Quoted-Printable only supports ISO-8859-1 and ISO-8859-2 charsets
     public static func decode(_ encoded: String) -> String? {
         
         guard encoded.count <= 76 else {
@@ -118,7 +150,17 @@ public final class RFC2047Coder {
         }
         return decoded
     }
-    
+
+    /// Encodes a string using RFC 2047 Base64 encoding with UTF-8 charset.
+    ///
+    /// - Parameter candidate: The string to encode
+    /// - Returns: The RFC 2047 encoded string in the format `=?utf-8?b?base64text?=`, or `nil` if encoding fails
+    ///
+    /// ## Example
+    /// ```swift
+    /// let encoded = RFC2047Coder.encode("用户")
+    /// // Returns: "=?utf-8?b?55So5oi3?="
+    /// ```
     public static func encode(_ candidate: String) -> String? {
         guard let utf8data = candidate.data(using: .utf8) else {
             return nil
