@@ -22,13 +22,21 @@ You can use The Swift Package Manager to install SwiftEmailValidator by adding i
         ]
     )
 
+## Performance Considerations
+
+Due to the high number of entries in the Public Suffix list (>9k), the first email validation may add 100ms to 900ms depending on the device. To avoid this delay affecting user experience, you can pre-load the rules on a background thread soon after launching the app:
+
+    import SwiftPublicSuffixList
+
+    DispatchQueue.global(qos: .utility).async {
+        _ = PublicSuffixRulesRegistry.rules
+    }
+
 ## Public Suffix List
 
 By default, domains are validated against the [Public Suffix List](https://publicsuffix.org) using the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library.
 
 ### Notes:
-* Due to the high number of entries in the Public Suffix list (>9k), the first validation may add 100ms to 900ms depending on the device you are using.  If this is unacceptable you can
- pre-load on a background thread PublicSuffixRulesRegistry.rules prior to using EmailSyntaxValidator.
 * The [Public Suffix List](https://publicsuffix.org) is updated regularly. If your application is published regularly you may be fine by simply pulling the latest version of the SwiftPublicSuffixList library.  However it is recommended to have
 your application retrieve the latest copy of the public suffix list on a somewhat regular basis.  Details on how to accomplish this are available in the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library page.  You can then use the domainValidator parameter to specify the closure to use for the domain validation.  See "Using Custom SwiftPublicSuffixList Rules" below.
 * You can bypass the Public Suffix List altogether and use your own custom Regex if desired. See "Bypassing SwiftPublicSuffixList" below.
