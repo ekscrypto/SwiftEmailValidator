@@ -13,7 +13,17 @@ swift test
 
 # Run tests with code coverage
 swift test --enable-code-coverage
+
+# Run a single test class
+swift test --filter EmailSyntaxValidatorTests
+
+# Run a single test method
+swift test --filter EmailSyntaxValidatorTests/testDotAtomLocalPart
 ```
+
+## DemoApp
+
+The `DemoApp/` directory contains a SwiftUI iOS app that compares email validation methods across ~150 test cases. Open `DemoApp/EmailValidation.xcodeproj` in Xcode to build and run on iOS Simulator.
 
 ## Architecture Overview
 
@@ -54,3 +64,11 @@ SwiftEmailValidator is an RFC-compliant email syntax validator supporting intern
 - Returns `nil` for invalid input rather than throwing
 - Domain validation is pluggable via closure parameter
 - Character validation uses pre-built `CharacterSet` instances for efficiency
+
+### RFC Standards Implemented
+
+- RFC 822: Standard for the format of ARPA Internet text messages
+- RFC 2047: MIME Part Three - Message header extensions for non-ASCII text
+- RFC 5321: Simple Mail Transfer Protocol (SMTP)
+- RFC 5322: Internet Message Format
+- RFC 6531: SMTP Extension for Internationalized Email

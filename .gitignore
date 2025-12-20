@@ -89,6 +89,6 @@ fastlane/test_output
 
 iOSInjectionProject/
 
-Sources/.DS_Store
+.DS_Store
 
 Package.resolved
