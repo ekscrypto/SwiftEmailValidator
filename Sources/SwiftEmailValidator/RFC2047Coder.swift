@@ -64,6 +64,7 @@ public final class RFC2047Coder {
         "F": 15
     ]
     private static let rfc2047regex = #"^=\?([A-Za-z0-9-]+)\?([bBqQ])\?(.*)\?=$"#
+    private static let compiledRfc2047Regex = try? NSRegularExpression(pattern: rfc2047regex, options: [])
 
     /// Decodes an RFC 2047 encoded string.
     ///
@@ -105,7 +106,7 @@ public final class RFC2047Coder {
             return decoded
         }
 
-        assert(encoding == "q")
+        guard encoding == "q" else { return nil }
         guard [.isoLatin1, .isoLatin2].contains(stringEncoding) else {
             // rejects 'q' encoding for utf-8, should be 'b' encoded.
             return nil
@@ -136,7 +137,6 @@ public final class RFC2047Coder {
             if digitsCaptured == 1 { continue nextCharacter }
             
             guard value >= 0x20,
-                  value != 0xFF,
                   let decodedCharacter = String(data: Data([value]), encoding: stringEncoding)
             else {
                 return nil
@@ -171,9 +171,10 @@ public final class RFC2047Coder {
     }
     
     private static func match(regex: String, to value: String) -> [[String]] {
+        guard let compiledRegex = compiledRfc2047Regex else { return [] }
         let nsValue: NSString = value as NSString
-        return (try? NSRegularExpression(pattern: regex, options: []))?.matches(in: value, options: [], range: NSMakeRange(0, nsValue.length)).map { match in
+        return compiledRegex.matches(in: value, options: [], range: NSMakeRange(0, nsValue.length)).map { match in
             (0..<match.numberOfRanges).map { match.range(at: $0).location == NSNotFound ? "" : nsValue.substring(with: match.range(at: $0)) }
-        } ?? []
+        }
     }
 }

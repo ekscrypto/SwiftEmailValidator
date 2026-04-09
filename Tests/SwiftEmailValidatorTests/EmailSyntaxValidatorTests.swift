@@ -213,12 +213,20 @@ final class EmailSyntaxValidatorTests: XCTestCase {
 
     func testUnicodeLocalPartCharacterVsByteCount() {
         // Musical G clef U+1D11E is a 4-byte UTF-8 character
-        // 30 such characters = 30 chars but 120 UTF-8 bytes
+        // RFC 5321 §4.5.3.1.1: local part limit is 64 *octets* (bytes), not characters
         let fourByteChar = "\u{1D11E}" // 𝄞
-        let localPart = String(repeating: fourByteChar, count: 30)
-        let testEmail = "\(localPart)@site.com"
-        let result = EmailSyntaxValidator.mailbox(from: testEmail, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})
-        XCTAssertNotNil(result, "30 four-byte Unicode characters (120 bytes but 30 chars) should be valid since limit is character count")
+
+        // 30 × 4-byte chars = 120 UTF-8 bytes > 64-byte limit → rejected
+        let localPart30 = String(repeating: fourByteChar, count: 30)
+        let testEmail30 = "\(localPart30)@site.com"
+        let result30 = EmailSyntaxValidator.mailbox(from: testEmail30, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})
+        XCTAssertNil(result30, "30 four-byte Unicode characters (120 bytes) should be rejected since RFC 5321 local part limit is 64 octets")
+
+        // 16 × 4-byte chars = 64 UTF-8 bytes = exactly the limit → accepted
+        let localPart16 = String(repeating: fourByteChar, count: 16)
+        let testEmail16 = "\(localPart16)@site.com"
+        let result16 = EmailSyntaxValidator.mailbox(from: testEmail16, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})
+        XCTAssertNotNil(result16, "16 four-byte Unicode characters (64 bytes exactly) should be valid")
     }
 
     func testUnicodeLocalPartExceeds64Characters() {
@@ -430,13 +438,27 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     }
 
     func testExtremelyLongDomain() {
-        // Valid local part but very long domain
-        let longDomain = String(repeating: "x", count: 500) + ".com"
-        let testEmail = "user@\(longDomain)"
-        // This depends on domain validator - with permissive validator it may pass
-        let result = EmailSyntaxValidator.mailbox(from: testEmail, domainValidator: { _ in true })
-        // Document behavior - long domains may be accepted if validator allows
-        XCTAssertNotNil(result, "With permissive validator, long domain is accepted")
+        let permissive: (String) -> Bool = { _ in true }
+
+        // RFC 1035: a single label exceeding 63 chars should be rejected
+        let longLabelDomain = String(repeating: "x", count: 64) + ".com"
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@\(longLabelDomain)", domainValidator: permissive),
+                     "Domain with a label longer than 63 chars should be rejected")
+
+        // Valid labels (≤63 chars each) but total domain > 253 chars → rejected
+        // 63+1+63+1+63+1+63+1+3 = 259 chars > 253
+        let longTotalDomain = String(repeating: "a", count: 63) + "."
+            + String(repeating: "b", count: 63) + "."
+            + String(repeating: "c", count: 63) + "."
+            + String(repeating: "d", count: 63) + ".com"
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@\(longTotalDomain)", domainValidator: permissive),
+                     "Domain with total length > 253 chars should be rejected")
+
+        // Valid labels and total < 253 chars → accepted with permissive validator
+        // 63+1+63+1+3 = 131 chars < 253
+        let validLongDomain = String(repeating: "a", count: 63) + "." + String(repeating: "b", count: 63) + ".com"
+        XCTAssertNotNil(EmailSyntaxValidator.mailbox(from: "user@\(validLongDomain)", domainValidator: permissive),
+                        "Domain with valid-length labels totaling < 253 chars should be accepted with permissive validator")
     }
 
     func testVeryLongRFC2047EncodedString() {
@@ -448,6 +470,52 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         if let enc = encoded, enc.count > 76 {
             XCTAssertNil(RFC2047Coder.decode(enc), "RFC2047 encoded string over 76 chars should fail decoding")
         }
+    }
+
+    func testTotalEmailLengthLimit() {
+        let permissive: (String) -> Bool = { _ in true }
+
+        // ASCII: local=64 bytes, @=1 byte, domain=189 bytes (63+1+63+1+61) → total 254 bytes → valid
+        let localPart64 = String(repeating: "x", count: 64)
+        let domain189 = String(repeating: "a", count: 63) + "." + String(repeating: "b", count: 63) + "." + String(repeating: "c", count: 61)
+        let email254 = "\(localPart64)@\(domain189)"
+        XCTAssertEqual(email254.utf8.count, 254)
+        XCTAssertNotNil(EmailSyntaxValidator.mailbox(from: email254, compatibility: .ascii, domainValidator: permissive),
+                        "254-byte email should be valid")
+
+        // ASCII: same but one extra byte in domain → total 255 bytes → rejected
+        let domain190 = domain189 + "x"
+        let email255 = "\(localPart64)@\(domain190)"
+        XCTAssertEqual(email255.utf8.count, 255)
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: email255, compatibility: .ascii, domainValidator: permissive),
+                     "255-byte email should be rejected")
+
+        // Unicode: local part uses 3-byte chars; multi-byte total tips over 254 bytes
+        // 21 × "三" (3 bytes each) = 63 bytes; domain 63+1+63+1+62=190 bytes → total 254 bytes → valid
+        let unicodeLocal63 = String(repeating: "三", count: 21)
+        XCTAssertEqual(unicodeLocal63.utf8.count, 63)
+        let unicodeDomain190 = String(repeating: "a", count: 63) + "." + String(repeating: "b", count: 63) + "." + String(repeating: "c", count: 62)
+        XCTAssertEqual(unicodeDomain190.utf8.count, 190)
+        let unicodeEmail254 = "\(unicodeLocal63)@\(unicodeDomain190)"
+        XCTAssertEqual(unicodeEmail254.utf8.count, 254)
+        XCTAssertNotNil(EmailSyntaxValidator.mailbox(from: unicodeEmail254, compatibility: .unicode, domainValidator: permissive),
+                        "Unicode 254-byte email should be valid")
+
+        // Unicode: same but domain has one extra byte → total 255 bytes → rejected
+        let unicodeDomain191 = String(repeating: "a", count: 63) + "." + String(repeating: "b", count: 63) + "." + String(repeating: "c", count: 63)
+        XCTAssertEqual(unicodeDomain191.utf8.count, 191)
+        let unicodeEmail255 = "\(unicodeLocal63)@\(unicodeDomain191)"
+        XCTAssertEqual(unicodeEmail255.utf8.count, 255)
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: unicodeEmail255, compatibility: .unicode, domainValidator: permissive),
+                     "Unicode 255-byte email should be rejected")
+    }
+
+    func testBmpPrivateUseAreaRejected() {
+        // BMP Private Use Area characters (U+E000–U+F8FF) must be rejected in Unicode local parts
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user\u{E000}@site.com", compatibility: .unicode),
+                     "BMP PUA U+E000 should be rejected in Unicode local part")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user\u{F8FF}@site.com", compatibility: .unicode),
+                     "BMP PUA U+F8FF should be rejected in Unicode local part")
     }
 
     func testManyUnicodeCharactersInLocalPart() {

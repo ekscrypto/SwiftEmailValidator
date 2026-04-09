@@ -30,7 +30,7 @@ final public class IPAddressSyntaxValidator {
     /// - Parameter candidate: String to validate
     /// - Returns: true if syntax eems valid, false otherwise
     static func matchIPv4(_ candidate: String) -> Bool {
-        let v4regex = #"^((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$"#
+        let v4regex = #"^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$"#
         return candidate.range(of: v4regex, options: .regularExpression) != nil
     }
 

@@ -155,6 +155,11 @@ public final class EmailSyntaxValidator {
             }
         }
 
+        // RFC 5321 §4.5.3.1.3: maximum total length of a reverse-path or forward-path is 256 octets (254 for the address)
+        guard smtpCandidate.utf8.count <= 254 else {
+            return nil
+        }
+
         if let dotAtom = extractDotAtom(smtpCandidate, compatibility: extractionCompatibility) {
             return mailbox(
                 localPart: .dotAtom(dotAtom),
@@ -227,10 +232,16 @@ public final class EmailSyntaxValidator {
             return extractHostLiteral(from: candidate, allowAddressLiteral: allowAddressLiteral)
         }
 
+        // RFC 1035: each label must be ≤63 chars, total domain must be ≤253 chars
+        guard candidate.count <= 253,
+              candidate.split(separator: ".").allSatisfy({ $0.count <= 63 }) else {
+            return nil
+        }
+
         if domainValidator(candidate) {
             return .domain(candidate)
         }
-        
+
         return nil
     }
     
@@ -270,6 +281,7 @@ public final class EmailSyntaxValidator {
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x202A)!...Unicode.Scalar(0x202E)!)) // LRE, RLE, PDF, LRO, RLO
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x2066)!...Unicode.Scalar(0x2069)!)) // LRI, RLI, FSI, PDI
     private static let deprecatedFormatChars: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0x206A)!...Unicode.Scalar(0x206F)!) // Deprecated formatting
+    private static let bmpPrivateUseChars: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0xE000)!...Unicode.Scalar(0xF8FF)!) // BMP Private Use Area
 
     // Note: CharacterSet.inverted doesn't properly include supplementary planes (U+10000+)
     // We must explicitly include them. Unicode planes:
@@ -289,6 +301,7 @@ public final class EmailSyntaxValidator {
         .subtracting(CharacterSet(charactersIn: c1ControlRange)) // Exclude C1 control characters per RFC5198
         .subtracting(bidiFormattingChars) // Exclude bidirectional formatting (security)
         .subtracting(deprecatedFormatChars) // Exclude deprecated format characters
+        .subtracting(bmpPrivateUseChars) // Exclude BMP Private Use Area (U+E000-U+F8FF)
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
     private static let quotedPairSMTP: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x20)!...Unicode.Scalar(0x7E)!
@@ -305,6 +318,7 @@ public final class EmailSyntaxValidator {
         .subtracting(CharacterSet(charactersIn: c1ControlRange)) // Exclude C1 control characters per RFC5198
         .subtracting(bidiFormattingChars) // Exclude bidirectional formatting (security)
         .subtracting(deprecatedFormatChars) // Exclude deprecated format characters
+        .subtracting(bmpPrivateUseChars) // Exclude BMP Private Use Area (U+E000-U+F8FF)
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
     private static func extractDotAtom(_ candidate: String, compatibility: Compatibility) -> String? {
@@ -317,7 +331,7 @@ public final class EmailSyntaxValidator {
         let dotAtom = candidate[..<atRange.lowerBound]
         let disallowedCharacterSet: CharacterSet = compatibility == .ascii ? atextCharacterSet.inverted : atextUnicodeCharacterSet.inverted
         guard dotAtom.count > 0,
-              dotAtom.count <= 64,
+              dotAtom.utf8.count <= 64,
               !dotAtom.hasPrefix("."),
               !dotAtom.hasSuffix("."),
               dotAtom.components(separatedBy: ".").allSatisfy({ $0.count > 0 && $0.rangeOfCharacter(from: disallowedCharacterSet) == nil })
@@ -347,7 +361,7 @@ public final class EmailSyntaxValidator {
         
     nextCharacter:
         for character in candidate {
-            precondition(dquotes <= 2)
+            guard dquotes <= 2 else { return nil }
             guard let characterScalar = character.unicodeScalars.first,
                   character.unicodeScalars.count <= maxScalars
             else {

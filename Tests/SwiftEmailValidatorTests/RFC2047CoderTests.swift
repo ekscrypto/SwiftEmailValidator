@@ -87,6 +87,12 @@ final class RFC2047CoderTests: XCTestCase {
         XCTAssertEqual(RFC2047Coder.encode("한@x.한국"), "=?utf-8?b?7ZWcQHgu7ZWc6rWt?=")
     }
 
+    func testDecodingLatin1QAcceptsYUmlaut() {
+        // 0xFF in ISO-8859-1 is ÿ (U+00FF, LATIN SMALL LETTER Y WITH DIAERESIS), a valid character
+        XCTAssertEqual(RFC2047Coder.decode("=?iso-8859-1?q?=FF?="), "ÿ",
+                       "0xFF (ÿ) should be accepted as a valid ISO-8859-1 character")
+    }
+
     // MARK: - Phase 1: UTF-16/UTF-32 Tests
 
     func testDecodingUTF16B() {

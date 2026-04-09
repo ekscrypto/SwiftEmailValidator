@@ -122,23 +122,10 @@ final class IPAddressValidatorTests: XCTestCase {
     }
 
     func testIPv4LeadingZeros() {
-        // Leading zeros handling - typically these are invalid or treated differently
-        let leadingZeros = [
-            "192.168.001.001",
-            "010.010.010.010",
-            "001.002.003.004"
-        ]
-        // Document behavior - leading zeros may be rejected or interpreted as octal
-        for addr in leadingZeros {
-            // The validator may accept or reject these - document actual behavior
-            let result = IPAddressSyntaxValidator.matchIPv4(addr)
-            // Leading zeros are typically valid in decimal notation
-            if result {
-                XCTAssertTrue(result, "Leading zeros in \(addr) are accepted")
-            } else {
-                XCTAssertFalse(result, "Leading zeros in \(addr) are rejected")
-            }
-        }
+        // Leading zeros are ambiguous (decimal vs octal) and rejected per RFC compliance
+        XCTAssertFalse(IPAddressSyntaxValidator.matchIPv4("192.168.001.001"), "Leading zeros in IPv4 octet should be rejected")
+        XCTAssertFalse(IPAddressSyntaxValidator.matchIPv4("010.010.010.010"), "Leading zeros in IPv4 octet should be rejected")
+        XCTAssertFalse(IPAddressSyntaxValidator.matchIPv4("001.002.003.004"), "Leading zeros in IPv4 octet should be rejected")
     }
 
     func testEmptyIPAddressStrings() {
