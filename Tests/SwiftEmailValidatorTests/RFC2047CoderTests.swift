@@ -260,6 +260,30 @@ final class RFC2047CoderTests: XCTestCase {
         XCTAssertNil(RFC2047Coder.decode("=?utf-8?b?dGVz dA?="), "Spaces in encoded text should cause failure or be handled per RFC")
     }
 
+    // MARK: - Bug 1: RFC 2047 75-character limit
+
+    func testDecode75CharLimitEnforced() {
+        // RFC 2047 §2: "An 'encoded-word' may not be more than 75 characters long".
+        // Overhead: "=?iso-8859-1?q?" (15) + "?=" (2) = 17 chars → 58 chars of content hits 75 exactly.
+        let prefix = "=?iso-8859-1?q?"
+        let suffix = "?="
+        let overhead = prefix.count + suffix.count  // 17
+
+        // Exactly 75 chars → accepted
+        let content75 = String(repeating: "a", count: 75 - overhead)
+        let encoded75 = prefix + content75 + suffix
+        XCTAssertEqual(encoded75.count, 75)
+        XCTAssertNotNil(RFC2047Coder.decode(encoded75),
+                        "Encoded word of exactly 75 chars must be accepted per RFC 2047 §2")
+
+        // 76 chars → must be rejected (was incorrectly accepted before the fix)
+        let content76 = String(repeating: "a", count: 76 - overhead)
+        let encoded76 = prefix + content76 + suffix
+        XCTAssertEqual(encoded76.count, 76)
+        XCTAssertNil(RFC2047Coder.decode(encoded76),
+                     "Encoded word of 76 chars must be rejected per RFC 2047 §2 (max is 75)")
+    }
+
     func testDecodeGreedyRegexNoExtraContent() {
         // The RFC2047 regex uses (.*) which is greedy. For "=?utf-8?b?aGVsbG8=?=extra?=",
         // the greedy match captures "aGVsbG8=?=extra" as the encoded text. The '?' character

@@ -785,4 +785,42 @@ final class EmailSyntaxValidatorTests: XCTestCase {
             "U+1F600 (emoji, SMP) just below Tags block should still be accepted"
         )
     }
+
+    // MARK: - Bug 2: Supplementary PUA (U+F0000-U+10FFFF)
+
+    func testSupplementaryPrivateUseAreaRejectedInLocalPart() {
+        // Supplementary Private Use Area-A (U+F0000-U+FFFFF) and -B (U+100000-U+10FFFF)
+        // carry the same spoofing risk as the BMP Private Use Area (U+E000-U+F8FF),
+        // which is already blocked. Private-use characters have no standardised rendering
+        // and can appear identical to common glyphs in custom fonts.
+        let permissive: (String) -> Bool = { _ in true }
+        let supplementaryPUAChars: [(Unicode.Scalar, String)] = [
+            (Unicode.Scalar(0xF0000)!, "U+F0000 Supplementary PUA-A first"),
+            (Unicode.Scalar(0xF0001)!, "U+F0001 Supplementary PUA-A"),
+            (Unicode.Scalar(0xFFFFD)!, "U+FFFFD Supplementary PUA-A last valid"),
+            (Unicode.Scalar(0x100000)!, "U+100000 Supplementary PUA-B first"),
+            (Unicode.Scalar(0x100001)!, "U+100001 Supplementary PUA-B"),
+            (Unicode.Scalar(0x10FFFD)!, "U+10FFFD Supplementary PUA-B last valid"),
+        ]
+        for (scalar, name) in supplementaryPUAChars {
+            let char = String(scalar)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com", compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part (supplementary PUA spoofing prevention)"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com", compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part (supplementary PUA spoofing prevention)"
+            )
+        }
+        // Confirm legitimate SMP characters (emoji, historic scripts) remain accepted
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{1F600}@site.com", compatibility: .unicode, domainValidator: permissive),
+            "U+1F600 (emoji, SMP) must still be accepted"
+        )
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{1D400}@site.com", compatibility: .unicode, domainValidator: permissive),
+            "U+1D400 (Mathematical Bold A, SMP) must still be accepted"
+        )
+    }
 }

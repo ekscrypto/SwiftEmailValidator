@@ -80,7 +80,7 @@ public final class RFC2047Coder {
     /// - Quoted-Printable only supports ISO-8859-1 and ISO-8859-2 charsets
     public static func decode(_ encoded: String) -> String? {
         
-        guard encoded.count <= 76 else {
+        guard encoded.count <= 75 else {
             return nil
         }
         let encodingComponents = match(regex: rfc2047regex, to: encoded)

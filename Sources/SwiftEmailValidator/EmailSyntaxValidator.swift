@@ -388,8 +388,9 @@ public final class EmailSyntaxValidator {
                       // U+E0000-U+E007F Unicode Tags block (deprecated invisible-text markup)
                       // U+E0100-U+E01EF Variation Selectors Supplement (invisible combiners, spoofing)
                       && !label.unicodeScalars.contains(where: {
-                          ($0.value >= 0xE0000 && $0.value <= 0xE007F)
-                          || ($0.value >= 0xE0100 && $0.value <= 0xE01EF)
+                          ($0.value >= 0xE0000 && $0.value <= 0xE007F)   // Unicode Tags block
+                          || ($0.value >= 0xE0100 && $0.value <= 0xE01EF) // Variation Selectors Supplement
+                          || ($0.value >= 0xF0000 && $0.value <= 0x10FFFF) // Supplementary PUA-A/B
                       })
               })
         else {
@@ -436,7 +437,8 @@ public final class EmailSyntaxValidator {
                 (s.value >= 0xFE00 && s.value <= 0xFE0F) ||     // U+FE00-U+FE0F Variation Selectors
                 (s.value >= 0xE0000 && s.value <= 0xE007F) ||   // U+E0000-U+E007F Unicode Tags block
                 (s.value >= 0xE0100 && s.value <= 0xE01EF) ||   // U+E0100-U+E01EF Variation Selectors Supplement
-                (s.value == 0x2028 || s.value == 0x2029)        // U+2028 Line Sep, U+2029 Para Sep
+                (s.value == 0x2028 || s.value == 0x2029) ||     // U+2028 Line Sep, U+2029 Para Sep
+                (s.value >= 0xF0000 && s.value <= 0x10FFFF)     // Supplementary PUA-A/B
             }) else {
                 return nil
             }
