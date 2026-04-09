@@ -232,9 +232,23 @@ public final class EmailSyntaxValidator {
             return extractHostLiteral(from: candidate, allowAddressLiteral: allowAddressLiteral)
         }
 
-        // RFC 1035: each label must be ≤63 chars, total domain must be ≤253 chars
-        guard candidate.count <= 253,
-              candidate.split(separator: ".").allSatisfy({ $0.count <= 63 }) else {
+        // RFC 5321: host must not be empty
+        guard !candidate.isEmpty else { return nil }
+
+        // RFC 1035: total domain must be ≤253 chars
+        guard candidate.count <= 253 else { return nil }
+
+        // Split without omitting empty subsequences so that consecutive dots (empty labels),
+        // leading dots, and trailing dots are all caught by the per-label checks below.
+        let labels = candidate.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.allSatisfy({ label in
+            let s = String(label)
+            return s.count >= 1          // no empty labels (catches .., leading/trailing dot)
+                && s.count <= 63         // RFC 1035: each label ≤63 chars
+                && !s.hasPrefix("-")     // RFC 1123: no leading hyphen
+                && !s.hasSuffix("-")     // RFC 1123: no trailing hyphen
+                && s.unicodeScalars.allSatisfy({ domainLabelCharacterSet.contains($0) })
+        }) else {
             return nil
         }
 
@@ -304,6 +318,11 @@ public final class EmailSyntaxValidator {
         .subtracting(bmpPrivateUseChars) // Exclude BMP Private Use Area (U+E000-U+F8FF)
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
+    // RFC 952/1123: domain labels are LDH (letters, digits, hyphens); Unicode letters are
+    // additionally allowed for IDN U-labels per RFC 5891.
+    private static let domainLabelCharacterSet: CharacterSet = CharacterSet.letters
+        .union(CharacterSet(charactersIn: "0123456789-"))
+
     private static let quotedPairSMTP: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x20)!...Unicode.Scalar(0x7E)!
     private static let qtextSMTP1: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x20)!...Unicode.Scalar(0x21)!
     private static let qtextSMTP2: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x23)!...Unicode.Scalar(0x5B)!
@@ -369,7 +388,8 @@ public final class EmailSyntaxValidator {
             }
             
             if expectingAt {
-                guard character == "@" else {
+                guard character == "@",
+                      integralText.utf8.count <= 64 else {
                     return nil
                 }
                 return ExtractedQuotedText(integral: integralText, cleaned: cleanedText)

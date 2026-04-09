@@ -520,10 +520,75 @@ final class EmailSyntaxValidatorTests: XCTestCase {
 
     func testManyUnicodeCharactersInLocalPart() {
         // 64 diverse Unicode characters from different scripts
-        let diverse = "한中あαбעعहবதతకಕമෆไᎠ" // Various scripts
+        let diverse = "한中あαбעعहবதతకಕමෆไᎠ" // Various scripts
         let localPart = String(diverse.prefix(60)) // Stay under 64
         let testEmail = "\(localPart)@site.com"
         let result = EmailSyntaxValidator.mailbox(from: testEmail, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})
         XCTAssertNotNil(result, "Diverse Unicode characters should be valid in Unicode mode")
+    }
+
+    // MARK: - RFC Compliance Fixes
+
+    func testQuotedStringLocalPartLengthLimit() {
+        let permissive: (String) -> Bool = { _ in true }
+
+        // " + 62 a's + " = 64 UTF-8 bytes → at limit, accepted
+        let exactly64 = "\"" + String(repeating: "a", count: 62) + "\""
+        XCTAssertNotNil(EmailSyntaxValidator.mailbox(from: "\(exactly64)@site.com", domainValidator: permissive),
+                        "Quoted-string local part of exactly 64 UTF-8 bytes should be accepted")
+
+        // " + 63 a's + " = 65 UTF-8 bytes → over limit, rejected
+        let over64 = "\"" + String(repeating: "a", count: 63) + "\""
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "\(over64)@site.com", domainValidator: permissive),
+                     "Quoted-string local part exceeding 64 UTF-8 bytes should be rejected")
+
+        // Multi-byte Unicode: " + 16 × 4-byte chars + " = 66 UTF-8 bytes → rejected
+        let multiByteOver = "\"" + String(repeating: "\u{1D11E}", count: 16) + "\""
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "\(multiByteOver)@site.com", compatibility: .unicode, domainValidator: permissive),
+                     "Quoted-string with multi-byte chars exceeding 64 bytes should be rejected")
+    }
+
+    func testEmptyHostRejectedWithPermissiveValidator() {
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@", domainValidator: permissive),
+                     "Empty host must be rejected regardless of domain validator")
+    }
+
+    func testDoubleAtSignRejectedWithPermissiveValidator() {
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@@example.com", domainValidator: permissive),
+                     "Double @ must be rejected regardless of domain validator")
+    }
+
+    func testEmptyDomainLabelRejectedWithPermissiveValidator() {
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@example..com", domainValidator: permissive),
+                     "Consecutive dots (empty label) must be rejected regardless of domain validator")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@.example.com", domainValidator: permissive),
+                     "Leading dot in domain must be rejected regardless of domain validator")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@example.com.", domainValidator: permissive),
+                     "Trailing dot in domain must be rejected regardless of domain validator")
+    }
+
+    func testInvalidDomainLabelCharactersRejectedWithPermissiveValidator() {
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@exam ple.com", domainValidator: permissive),
+                     "Space in domain label must be rejected regardless of domain validator")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@exam@ple.com", domainValidator: permissive),
+                     "@ in domain label must be rejected regardless of domain validator")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@exam#ple.com", domainValidator: permissive),
+                     "# in domain label must be rejected regardless of domain validator")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@exam[ple.com", domainValidator: permissive),
+                     "[ in domain label must be rejected regardless of domain validator")
+    }
+
+    func testLeadingTrailingHyphenInDomainLabelRejectedWithPermissiveValidator() {
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@-example.com", domainValidator: permissive),
+                     "Leading hyphen in domain label must be rejected regardless of domain validator")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@example-.com", domainValidator: permissive),
+                     "Trailing hyphen in domain label must be rejected regardless of domain validator")
+        XCTAssertNotNil(EmailSyntaxValidator.mailbox(from: "user@ex-ample.com", domainValidator: permissive),
+                        "Hyphen within a domain label should remain valid")
     }
 }
