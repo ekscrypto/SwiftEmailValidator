@@ -304,6 +304,7 @@ public final class EmailSyntaxValidator {
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x200B)!...Unicode.Scalar(0x200D)!)) // U+200B ZWS, U+200C ZWNJ, U+200D ZWJ
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x2060)!...Unicode.Scalar(0x2064)!)) // U+2060 Word Joiner, U+2061-U+2064 invisible math operators
         .union(CharacterSet(charactersIn: Unicode.Scalar(0xFEFF)!...Unicode.Scalar(0xFEFF)!)) // U+FEFF BOM / Zero Width No-Break Space
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x2028)!...Unicode.Scalar(0x2029)!)) // U+2028 Line Separator, U+2029 Paragraph Separator
 
     // Note: CharacterSet.inverted doesn't properly include supplementary planes (U+10000+).
     // Using .inverted on an ASCII-range set also leaks supplementary scalars into the result on
@@ -421,7 +422,8 @@ public final class EmailSyntaxValidator {
                 (s.value >= 0x200B && s.value <= 0x200D) ||   // U+200B-U+200D ZWS/ZWNJ/ZWJ
                 (s.value >= 0x2060 && s.value <= 0x2064) ||   // U+2060-U+2064 invisible format chars
                 s.value == 0xFEFF ||                          // U+FEFF BOM
-                (s.value >= 0xE0000 && s.value <= 0xE007F)    // U+E0000-U+E007F Unicode Tags block
+                (s.value >= 0xE0000 && s.value <= 0xE007F) ||  // U+E0000-U+E007F Unicode Tags block
+                (s.value == 0x2028 || s.value == 0x2029)        // U+2028 Line Sep, U+2029 Para Sep
             }) else {
                 return nil
             }

@@ -24,6 +24,21 @@ final class RFC2047CoderTests: XCTestCase {
         XCTAssertEqual(RFC2047Coder.decode("=?iso-8859-1?q?Santa=20Claus?="), "Santa Claus")
         XCTAssertEqual(RFC2047Coder.decode("=?iso-8859-1?q?\"Santa=20Claus\"@x=20.com?="), #""Santa Claus"@x .com"#)
     }
+
+    func testDecodingQEncodingUnderscoreAsSpace() {
+        // RFC 2047 §4.2: '_' may be used to represent a space in Q encoding
+        XCTAssertEqual(RFC2047Coder.decode("=?iso-8859-1?q?Santa_Claus?="), "Santa Claus",
+                       "Underscore in Q encoding should decode as space per RFC 2047 §4.2")
+        XCTAssertEqual(RFC2047Coder.decode("=?iso-8859-1?q?hello_world?="), "hello world",
+                       "Underscore in Q encoding should decode as space")
+        // Underscore and =20 should produce identical results
+        XCTAssertEqual(RFC2047Coder.decode("=?iso-8859-1?q?A_B?="),
+                       RFC2047Coder.decode("=?iso-8859-1?q?A=20B?="),
+                       "Underscore and =20 must produce identical output")
+        // Underscore in quoted-string email local part
+        XCTAssertEqual(RFC2047Coder.decode("=?iso-8859-1?q?\"Santa_Claus\"@site.com?="), "\"Santa Claus\"@site.com",
+                       "Underscore in Q-encoded quoted-string local part should become a space")
+    }
     
     func testDecodingInvalidCharset() {
         XCTAssertNil(RFC2047Coder.decode("=?schtroomf?b?shackalaka?="),"When an unknown charset is provided decoding should fail")
@@ -243,5 +258,18 @@ final class RFC2047CoderTests: XCTestCase {
     func testDecodeWithWhitespaceInEncodedWord() {
         // RFC2047 encoded words should not contain literal spaces in the encoded-text portion
         XCTAssertNil(RFC2047Coder.decode("=?utf-8?b?dGVz dA?="), "Spaces in encoded text should cause failure or be handled per RFC")
+    }
+
+    func testDecodeGreedyRegexNoExtraContent() {
+        // The RFC2047 regex uses (.*) which is greedy. For "=?utf-8?b?aGVsbG8=?=extra?=",
+        // the greedy match captures "aGVsbG8=?=extra" as the encoded text. The '?' character
+        // is not in the base64 alphabet, so Data(base64Encoded:) returns nil, and decode must fail.
+        // This guards against a scenario where extra content appended after the encoded-word
+        // could be silently accepted.
+        XCTAssertNil(RFC2047Coder.decode("=?utf-8?b?aGVsbG8=?=extra?="),
+                     "Encoded word with trailing extra content separated by ?= should fail to decode")
+        // Verify the clean version decodes correctly (aGVsbG8= is "hello" in base64)
+        XCTAssertEqual(RFC2047Coder.decode("=?utf-8?b?aGVsbG8=?="), "hello",
+                       "Clean base64 encoded word should decode correctly")
     }
 }

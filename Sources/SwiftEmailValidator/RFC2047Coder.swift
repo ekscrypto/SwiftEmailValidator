@@ -125,7 +125,8 @@ public final class RFC2047Coder {
                     value = 0
                     continue nextCharacter
                 }
-                decoded.append(character)
+                // RFC 2047 §4.2: '_' represents a space in Q encoding
+                decoded.append(character == "_" ? " " : character)
                 continue nextCharacter
             }
             

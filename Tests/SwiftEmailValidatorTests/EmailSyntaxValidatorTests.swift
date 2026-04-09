@@ -193,6 +193,27 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("1234567890123456789012345678901234567890123456789012345678901234567890@this.com", options: [.autoEncodeToRfc2047], compatibility: .asciiWithUnicodeExtension))
     }
 
+    func testAutoEncodeToRfc2047WithEmailTooLongToEncode() {
+        // RFC 2047 §2 caps an encoded-word at 76 characters.
+        // =?utf-8?b?<base64>?= uses 12 chars of overhead, leaving 64 chars for base64 payload.
+        // 64 base64 chars represent at most 48 bytes; a 12-emoji (@x.com) address is 54 UTF-8
+        // bytes, producing an 84-char encoded word that exceeds the 76-char limit.
+        // The validator must return nil rather than silently accepting or crashing.
+        let permissive: (String) -> Bool = { _ in true }
+        let twelveStarEmojis = String(repeating: "\u{1F31F}", count: 12)  // 12 × 4-byte UTF-8 = 48 bytes local part
+        let longUnicodeEmail = "\(twelveStarEmojis)@x.com"                // 54 bytes total → 84-char encoded word
+        XCTAssertEqual(longUnicodeEmail.utf8.count, 54)
+        XCTAssertFalse(
+            EmailSyntaxValidator.correctlyFormatted(
+                longUnicodeEmail,
+                options: [.autoEncodeToRfc2047],
+                compatibility: .asciiWithUnicodeExtension,
+                domainValidator: permissive
+            ),
+            "Email that encodes to an RFC2047 word exceeding 76 chars must be rejected"
+        )
+    }
+
     // MARK: - Phase 1: Local Part Boundary Tests
 
     func testLocalPartExactly63Characters() {
@@ -618,6 +639,35 @@ final class EmailSyntaxValidatorTests: XCTestCase {
                 "\(name) must be rejected in quoted-string local part (spoofing prevention)"
             )
         }
+    }
+
+    func testLineSeparatorCharactersRejectedInLocalPart() {
+        // U+2028 (Line Separator) and U+2029 (Paragraph Separator) carry line-break
+        // semantics in some runtimes and are not explicitly permitted by RFC 6531/6532.
+        // They must be rejected to prevent unexpected behaviour in downstream relay parsers.
+        let permissive: (String) -> Bool = { _ in true }
+        let lineSepChars: [(String, String)] = [
+            ("\u{2028}", "U+2028 Line Separator"),
+            ("\u{2029}", "U+2029 Paragraph Separator"),
+        ]
+        for (char, name) in lineSepChars {
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part"
+            )
+        }
+        // Confirm neighbours are unaffected
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{2027}@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+2027 (Hyphenation Point) just below the range should still be accepted"
+        )
     }
 
     // MARK: - S2: Unicode Tags block exclusion

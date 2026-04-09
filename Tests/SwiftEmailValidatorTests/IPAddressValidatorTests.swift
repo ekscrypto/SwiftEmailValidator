@@ -135,4 +135,30 @@ final class IPAddressValidatorTests: XCTestCase {
         XCTAssertFalse(IPAddressSyntaxValidator.match(" "), "Whitespace should not be valid IP")
         XCTAssertFalse(IPAddressSyntaxValidator.match("   "), "Multiple spaces should not be valid IP")
     }
+
+    func testIPv6AllZerosCompressedDoubleColon() {
+        // "::" is the compressed form of the all-zeros address 0:0:0:0:0:0:0:0 (RFC 4291 §2.2)
+        // It is distinct from the loopback "::1" and must be accepted as a valid IPv6 address.
+        XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6("::"),
+                      ":: (all-zeros compressed) must be a valid IPv6 address per RFC 4291")
+        // Confirm related valid compressed forms also pass
+        XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6("::1"),    "::1 loopback must be valid")
+        XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6("1::"),    "1:: compressed form must be valid")
+        XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6("1::2"),   "1::2 compressed form must be valid")
+    }
+
+    func testIPv6TwoDoubleColonsRejected() {
+        // RFC 4291 §2.2 rule 3: at most one "::" may appear in an address.
+        // Two "::" sequences make the address ambiguous and must be rejected.
+        let twoDoubleColons = [
+            "1::2::3",
+            "::1::2",
+            "1::2::3::4",
+            "fe80::1::1",
+        ]
+        for addr in twoDoubleColons {
+            XCTAssertFalse(IPAddressSyntaxValidator.matchIPv6(addr),
+                           "'\(addr)' contains two '::' groups and must be rejected per RFC 4291")
+        }
+    }
 }
