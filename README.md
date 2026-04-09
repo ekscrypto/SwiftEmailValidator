@@ -146,6 +146,62 @@ Allows to decode ASCII-encoded Latin-1/Latin-2/Unicode email addresses from SMTP
     print(RFC2047Decoder.decode("=?utf-8?B?7ZWcQHgu7ZWc6rWt?="))
     // 한@x.한국
 
+## Known Behaviors
+
+### Single-label domains (`user@localhost`)
+
+RFC 5321 requires a fully-qualified domain name in the `RCPT TO` / `MAIL FROM` path, so single-label hostnames such as `localhost` or `mailserver` are not valid in standard SMTP.
+
+The validator itself only checks syntax; whether a domain is accepted ultimately depends on the `domainValidator` closure. The default closure (`PublicSuffixList.isUnrestricted`) rejects single-label names because they have no registered public suffix. If you supply a permissive custom validator (`{ _ in true }`) single-label domains will be accepted. Make sure your validator enforces whatever hostname policy your application requires.
+
+### Unicode normalization
+
+The validator treats email addresses as opaque byte sequences and does **not** apply Unicode normalization (NFC/NFKC) before or after validation. This is intentional and RFC-correct: RFC 6531 explicitly leaves normalization to the receiving mail system.
+
+A practical consequence is that visually identical addresses can be treated as distinct:
+
+    // These two look the same on screen but are different strings:
+    let precomposed  = "café@example.com"          // é as U+00E9 (precomposed)
+    let decomposed   = "cafe\u{0301}@example.com"  // e + U+0301 combining acute (decomposed)
+
+    // Both are valid — but they compare as unequal:
+    precomposed == decomposed  // false
+
+If your application needs to treat these as the same address (e.g., for de-duplication or lookup), normalize the input with `String`'s built-in NFC support before validating:
+
+    import Foundation
+    let normalized = rawInput.precomposedStringWithCanonicalMapping  // NFC
+    let isValid = EmailSyntaxValidator.correctlyFormatted(normalized)
+
+### Halfwidth and fullwidth Unicode forms
+
+Unicode contains a "Fullwidth" block (U+FF01–U+FF5E) whose characters are visually similar to
+ASCII printable characters — for example, `ａ` (U+FF41) resembles `a` (U+0061). These are valid
+Unicode characters with legitimate uses in CJK typography and are accepted by the validator in
+`.unicode` compatibility mode per RFC 6531.
+
+This can create homograph confusion in account-registration systems:
+
+    // Both pass validation, but are distinct strings:
+    let ascii    = "admin@example.com"
+    let fullwide = "ａｄｍｉｎ@example.com"   // local part uses U+FF41–U+FF4E
+
+This is an **account-uniqueness concern**, not a syntax concern. The recommended mitigation for
+registration systems is NFKC normalization, which maps fullwidth characters back to their ASCII
+equivalents before storage or comparison:
+
+    import Foundation
+    // precomposedStringWithCompatibilityMapping applies NFKC:
+    // maps fullwidth ａ (U+FF41) → a (U+0061), etc.
+    let normalized = rawInput.precomposedStringWithCompatibilityMapping
+    let isValid = EmailSyntaxValidator.correctlyFormatted(normalized)
+    // Store/compare `normalized`, not `rawInput`
+
+If your application must restrict local parts to ASCII-range characters exclusively, use
+`.ascii` compatibility mode:
+
+    EmailSyntaxValidator.correctlyFormatted(candidate, compatibility: .ascii)
+
 ## Reference Documents
 
 RFC822 - STANDARD FOR THE FORMAT OF ARPA INTERNET TEXT MESSAGES
