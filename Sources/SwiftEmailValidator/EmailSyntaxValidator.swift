@@ -197,9 +197,10 @@ public final class EmailSyntaxValidator {
     /// - Returns: Repackaged email string (may still fail SMTP validation) or nil if really nothing that could be done
     private static func candidateForRfc2047(_ candidate: String, compatibility: Compatibility) -> String? {
         
+        // Avoid .inverted on sets containing supplementary planes — use per-scalar containment.
         guard compatibility == .asciiWithUnicodeExtension,
               !candidate.hasPrefix("=?"),
-              candidate.rangeOfCharacter(from: qtextUnicodeSMTPCharacterSet.inverted) == nil
+              candidate.unicodeScalars.allSatisfy({ qtextUnicodeSMTPCharacterSet.contains($0) })
         else {
             // There are some unsupported ASCII characters which are invalid regardless of unicode or ASCII (newline, tabs, etc)
             return nil
@@ -235,8 +236,8 @@ public final class EmailSyntaxValidator {
         // RFC 5321: host must not be empty
         guard !candidate.isEmpty else { return nil }
 
-        // RFC 1035: total domain must be ≤253 chars
-        guard candidate.count <= 253 else { return nil }
+        // RFC 1035: total domain must be ≤253 octets
+        guard candidate.utf8.count <= 253 else { return nil }
 
         // Split without omitting empty subsequences so that consecutive dots (empty labels),
         // leading dots, and trailing dots are all caught by the per-label checks below.
@@ -244,7 +245,7 @@ public final class EmailSyntaxValidator {
         guard labels.allSatisfy({ label in
             let s = String(label)
             return s.count >= 1          // no empty labels (catches .., leading/trailing dot)
-                && s.count <= 63         // RFC 1035: each label ≤63 chars
+                && s.utf8.count <= 63    // RFC 1035: each label ≤63 octets
                 && !s.hasPrefix("-")     // RFC 1123: no leading hyphen
                 && !s.hasSuffix("-")     // RFC 1123: no trailing hyphen
                 && s.unicodeScalars.allSatisfy({ domainLabelCharacterSet.contains($0) })
@@ -305,6 +306,7 @@ public final class EmailSyntaxValidator {
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x2060)!...Unicode.Scalar(0x2064)!)) // U+2060 Word Joiner, U+2061-U+2064 invisible math operators
         .union(CharacterSet(charactersIn: Unicode.Scalar(0xFEFF)!...Unicode.Scalar(0xFEFF)!)) // U+FEFF BOM / Zero Width No-Break Space
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x2028)!...Unicode.Scalar(0x2029)!)) // U+2028 Line Separator, U+2029 Paragraph Separator
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0xFE00)!...Unicode.Scalar(0xFE0F)!)) // U+FE00-U+FE0F Variation Selectors (invisible combiners, spoofing)
 
     // Note: CharacterSet.inverted doesn't properly include supplementary planes (U+10000+).
     // Using .inverted on an ASCII-range set also leaks supplementary scalars into the result on
@@ -369,17 +371,26 @@ public final class EmailSyntaxValidator {
         }
         
         let dotAtom = candidate[..<atRange.lowerBound]
-        let disallowedCharacterSet: CharacterSet = compatibility == .ascii ? atextCharacterSet.inverted : atextUnicodeCharacterSet.inverted
+        // Avoid .inverted on sets containing supplementary planes — Foundation has a known bug
+        // where .inverted doesn't correctly handle supplementary-plane bitmaps. Check membership
+        // in the allowed set directly using per-scalar containment instead.
+        let allowedCharacterSet: CharacterSet = compatibility == .ascii ? atextCharacterSet : atextUnicodeCharacterSet
         guard dotAtom.count > 0,
               dotAtom.utf8.count <= 64,
               !dotAtom.hasPrefix("."),
               !dotAtom.hasSuffix("."),
               dotAtom.components(separatedBy: ".").allSatisfy({ label in
                   label.count > 0
-                      && label.rangeOfCharacter(from: disallowedCharacterSet) == nil
-                      // Reject Unicode Tags block (U+E0000-U+E007F): deprecated invisible-text
-                      // characters included in supplementaryPlanes but unsafe for email.
-                      && !label.unicodeScalars.contains(where: { $0.value >= 0xE0000 && $0.value <= 0xE007F })
+                      && label.unicodeScalars.allSatisfy({ allowedCharacterSet.contains($0) })
+                      // Reject supplementary-plane ranges excluded from allowedCharacterSet via
+                      // explicit scalar guards (Foundation CharacterSet.contains() is reliable for
+                      // individual scalars, but belt-and-suspenders for these security-sensitive ranges):
+                      // U+E0000-U+E007F Unicode Tags block (deprecated invisible-text markup)
+                      // U+E0100-U+E01EF Variation Selectors Supplement (invisible combiners, spoofing)
+                      && !label.unicodeScalars.contains(where: {
+                          ($0.value >= 0xE0000 && $0.value <= 0xE007F)
+                          || ($0.value >= 0xE0100 && $0.value <= 0xE01EF)
+                      })
               })
         else {
             return nil
@@ -418,11 +429,13 @@ public final class EmailSyntaxValidator {
             // security-excluded scalars that appear as combining elements would slip through.
             // Scan every scalar in the cluster explicitly to prevent this.
             guard !character.unicodeScalars.contains(where: { s in
-                s.value == 0x00AD ||                          // U+00AD Soft Hyphen
-                (s.value >= 0x200B && s.value <= 0x200D) ||   // U+200B-U+200D ZWS/ZWNJ/ZWJ
-                (s.value >= 0x2060 && s.value <= 0x2064) ||   // U+2060-U+2064 invisible format chars
-                s.value == 0xFEFF ||                          // U+FEFF BOM
-                (s.value >= 0xE0000 && s.value <= 0xE007F) ||  // U+E0000-U+E007F Unicode Tags block
+                s.value == 0x00AD ||                            // U+00AD Soft Hyphen
+                (s.value >= 0x200B && s.value <= 0x200D) ||     // U+200B-U+200D ZWS/ZWNJ/ZWJ
+                (s.value >= 0x2060 && s.value <= 0x2064) ||     // U+2060-U+2064 invisible format chars
+                s.value == 0xFEFF ||                            // U+FEFF BOM
+                (s.value >= 0xFE00 && s.value <= 0xFE0F) ||     // U+FE00-U+FE0F Variation Selectors
+                (s.value >= 0xE0000 && s.value <= 0xE007F) ||   // U+E0000-U+E007F Unicode Tags block
+                (s.value >= 0xE0100 && s.value <= 0xE01EF) ||   // U+E0100-U+E01EF Variation Selectors Supplement
                 (s.value == 0x2028 || s.value == 0x2029)        // U+2028 Line Sep, U+2029 Para Sep
             }) else {
                 return nil

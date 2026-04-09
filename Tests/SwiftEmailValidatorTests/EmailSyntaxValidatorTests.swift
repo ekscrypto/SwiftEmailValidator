@@ -479,6 +479,49 @@ final class EmailSyntaxValidatorTests: XCTestCase {
                         "Domain with valid-length labels totaling < 253 chars should be accepted with permissive validator")
     }
 
+    func testDomainLabelUnicodeByteLengthEnforced() {
+        // RFC 1035 §2.3.4: each label must be ≤63 *octets*.
+        // A label composed of 32 two-byte characters is 32 characters (≤63) but 64 UTF-8 bytes (>63).
+        // It must be rejected even though the character count is within the old (wrong) limit.
+        let permissive: (String) -> Bool = { _ in true }
+
+        // "ñ" is U+00F1, 2 UTF-8 bytes. 32 × "ñ" = 32 chars / 64 bytes → label too long in octets.
+        let twoByteChar = "ñ"
+        XCTAssertEqual(twoByteChar.utf8.count, 2)
+        let label64Bytes = String(repeating: twoByteChar, count: 32) // 32 chars, 64 bytes
+        XCTAssertEqual(label64Bytes.count, 32)
+        XCTAssertEqual(label64Bytes.utf8.count, 64)
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@\(label64Bytes).com", compatibility: .unicode, domainValidator: permissive),
+                     "Domain label with 64 UTF-8 bytes (32 two-byte chars) must be rejected per RFC 1035")
+
+        // 31 × "ñ" = 31 chars / 62 bytes → should be accepted (within both limits).
+        let label62Bytes = String(repeating: twoByteChar, count: 31) // 31 chars, 62 bytes
+        XCTAssertEqual(label62Bytes.utf8.count, 62)
+        XCTAssertNotNil(EmailSyntaxValidator.mailbox(from: "user@\(label62Bytes).com", compatibility: .unicode, domainValidator: permissive),
+                        "Domain label with 62 UTF-8 bytes should be accepted")
+    }
+
+    func testTotalDomainUnicodeByteLengthEnforced() {
+        // RFC 1035 §2.3.4: total domain must be ≤253 *octets*.
+        // Build a domain whose character count is ≤253 but whose UTF-8 byte count exceeds 253.
+        // Each label: 31 × "ñ" (31 chars, 62 bytes); three labels + dots = 62+1+62+1+62 = 188 chars / bytes.
+        // Add a fourth label of 30 two-byte chars: 188+1+60 = 249 chars / 188+1+60 = 249 bytes — ok.
+        // Then push it over 253 bytes without going over 253 chars by using more two-byte chars.
+        let permissive: (String) -> Bool = { _ in true }
+        let twoByteChar = "ñ"
+
+        // Construct a domain that is 127 chars but 254 bytes.
+        // Three labels of 31 "ñ" each = 31*3 + 2 dots = 95 chars / 62*3+2 = 188 bytes.
+        // Add a 4th label of 33 "ñ" = 33 chars / 66 bytes → total 129 chars / 255 bytes → reject.
+        let label31 = String(repeating: twoByteChar, count: 31) // 62 bytes, 31 chars
+        let label33 = String(repeating: twoByteChar, count: 33) // 66 bytes, 33 chars
+        let longByteDomain = "\(label31).\(label31).\(label31).\(label33)"
+        XCTAssertLessThanOrEqual(longByteDomain.count, 253, "character count must be ≤253 to test the byte-count path")
+        XCTAssertGreaterThan(longByteDomain.utf8.count, 253, "byte count must exceed 253 to exercise the fix")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "u@\(longByteDomain)", compatibility: .unicode, domainValidator: permissive),
+                     "Domain exceeding 253 UTF-8 bytes must be rejected even if character count ≤253")
+    }
+
     func testVeryLongRFC2047EncodedString() {
         // RFC2047 has 76-character limit
         // Create a string that when encoded exceeds 76 chars
@@ -630,6 +673,49 @@ final class EmailSyntaxValidatorTests: XCTestCase {
             ("\u{FEFF}", "U+FEFF BOM / Zero Width No-Break Space"),
         ]
         for (char, name) in invisibleChars {
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com", compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part (spoofing prevention)"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com", compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part (spoofing prevention)"
+            )
+        }
+    }
+
+    func testVariationSelectorsRejectedInLocalPart() {
+        // Variation Selectors (U+FE00-U+FE0F) and Variation Selectors Supplement (U+E0100-U+E01EF)
+        // are invisible combining characters. They produce no glyph and render identically to their
+        // base character in all common renderers, making "user\u{FE01}" visually indistinguishable
+        // from "user" — the same spoofing risk as ZWJ/ZWNJ, which are already blocked.
+        let permissive: (String) -> Bool = { _ in true }
+
+        // BMP Variation Selectors (U+FE00-U+FE0F) — spot-check first, middle, last
+        let bmpVariationSelectors: [(String, String)] = [
+            ("\u{FE00}", "U+FE00 Variation Selector-1"),
+            ("\u{FE08}", "U+FE08 Variation Selector-9"),
+            ("\u{FE0F}", "U+FE0F Variation Selector-16"),
+        ]
+        for (char, name) in bmpVariationSelectors {
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com", compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part (spoofing prevention)"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com", compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part (spoofing prevention)"
+            )
+        }
+
+        // Variation Selectors Supplement (U+E0100-U+E01EF) — spot-check first, middle, last
+        let supplementVariationSelectors: [(Unicode.Scalar, String)] = [
+            (Unicode.Scalar(0xE0100)!, "U+E0100 Variation Selector-17"),
+            (Unicode.Scalar(0xE0140)!, "U+E0140 Variation Selector-81"),
+            (Unicode.Scalar(0xE01EF)!, "U+E01EF Variation Selector-256"),
+        ]
+        for (scalar, name) in supplementVariationSelectors {
+            let char = String(scalar)
             XCTAssertNil(
                 EmailSyntaxValidator.mailbox(from: "user\(char)@site.com", compatibility: .unicode, domainValidator: permissive),
                 "\(name) must be rejected in dot-atom local part (spoofing prevention)"
