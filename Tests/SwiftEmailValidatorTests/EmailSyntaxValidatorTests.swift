@@ -260,16 +260,13 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     }
 
     func testZeroWidthCharacters() {
-        // Zero-width joiner U+200D
+        // Zero-width joiner U+200D is excluded as an invisible format character (spoofing prevention).
+        // Allowing it would let "a\u{200D}b" and "ab" appear identical while being distinct addresses.
         let zwjEmail = "a\u{200D}b@site.com"
-        // These are typically control-like characters and may be rejected
-        let result = EmailSyntaxValidator.mailbox(from: zwjEmail, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})
-        // Document actual behavior - may be nil or valid depending on implementation
-        if result == nil {
-            XCTAssertNil(result, "Zero-width joiner is rejected as expected")
-        } else {
-            XCTAssertNotNil(result, "Zero-width joiner is accepted in Unicode mode")
-        }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: zwjEmail, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])}),
+            "Zero-width joiner (U+200D) must be rejected to prevent email address spoofing"
+        )
     }
 
     func testBidirectionalOverrideCharacters() {
@@ -590,5 +587,66 @@ final class EmailSyntaxValidatorTests: XCTestCase {
                      "Trailing hyphen in domain label must be rejected regardless of domain validator")
         XCTAssertNotNil(EmailSyntaxValidator.mailbox(from: "user@ex-ample.com", domainValidator: permissive),
                         "Hyphen within a domain label should remain valid")
+    }
+
+    // MARK: - S1: Invisible / zero-width character exclusions
+
+    func testInvisibleCharactersRejectedInLocalPart() {
+        // Invisible and zero-width format characters must be rejected in Unicode local parts.
+        // Accepting them lets an attacker create addresses that look identical to a legitimate
+        // one but are treated as distinct (account duplication / spoofing).
+        let permissive: (String) -> Bool = { _ in true }
+        let invisibleChars: [(String, String)] = [
+            ("\u{00AD}", "U+00AD Soft Hyphen"),
+            ("\u{200B}", "U+200B Zero Width Space"),
+            ("\u{200C}", "U+200C Zero Width Non-Joiner"),
+            ("\u{200D}", "U+200D Zero Width Joiner"),
+            ("\u{2060}", "U+2060 Word Joiner"),
+            ("\u{2061}", "U+2061 Function Application (invisible math)"),
+            ("\u{2062}", "U+2062 Invisible Times"),
+            ("\u{2063}", "U+2063 Invisible Separator"),
+            ("\u{2064}", "U+2064 Invisible Plus"),
+            ("\u{FEFF}", "U+FEFF BOM / Zero Width No-Break Space"),
+        ]
+        for (char, name) in invisibleChars {
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com", compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part (spoofing prevention)"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com", compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part (spoofing prevention)"
+            )
+        }
+    }
+
+    // MARK: - S2: Unicode Tags block exclusion
+
+    func testUnicodeTagsBlockRejectedInLocalPart() {
+        // The Unicode Tags block (U+E0000-U+E007F) contains deprecated characters originally
+        // intended for invisible language tagging. They produce no visible glyph and can be
+        // used to embed invisible payload in what appears to be a normal email address.
+        let permissive: (String) -> Bool = { _ in true }
+        let tagChars: [(String, String)] = [
+            ("\u{E0001}", "U+E0001 Language Tag"),
+            ("\u{E0041}", "U+E0041 Tag Latin Capital Letter A"),
+            ("\u{E0061}", "U+E0061 Tag Latin Small Letter A"),
+            ("\u{E007F}", "U+E007F Tag Delete (last char of Tags block)"),
+        ]
+        for (char, name) in tagChars {
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com", compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part (invisible tag character)"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com", compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part (invisible tag character)"
+            )
+        }
+        // Confirm characters just outside the Tags block remain accepted
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{1F600}@site.com", compatibility: .unicode, domainValidator: permissive),
+            "U+1F600 (emoji, SMP) just below Tags block should still be accepted"
+        )
     }
 }

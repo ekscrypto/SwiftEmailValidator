@@ -290,32 +290,51 @@ public final class EmailSyntaxValidator {
     // We also exclude other problematic characters per security best practices:
     // - Bidirectional formatting characters (U+200E-U+200F, U+202A-U+202E, U+2066-U+2069)
     // - Deprecated format characters (U+206A-U+206F)
+    // - Invisible/zero-width characters (U+00AD, U+200B-U+200D, U+2060-U+2064, U+FEFF)
     private static let c1ControlRange: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x80)!...Unicode.Scalar(0x9F)! // C1 control chars
     private static let bidiFormattingChars: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0x200E)!...Unicode.Scalar(0x200F)!) // LRM, RLM
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x202A)!...Unicode.Scalar(0x202E)!)) // LRE, RLE, PDF, LRO, RLO
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x2066)!...Unicode.Scalar(0x2069)!)) // LRI, RLI, FSI, PDI
     private static let deprecatedFormatChars: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0x206A)!...Unicode.Scalar(0x206F)!) // Deprecated formatting
     private static let bmpPrivateUseChars: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0xE000)!...Unicode.Scalar(0xF8FF)!) // BMP Private Use Area
+    // Invisible and zero-width format characters that produce no visible glyph.
+    // Allowing them enables creating visually-identical but distinct email addresses (spoofing).
+    private static let zeroWidthAndInvisibleChars: CharacterSet =
+        CharacterSet(charactersIn: Unicode.Scalar(0x00AD)!...Unicode.Scalar(0x00AD)!) // U+00AD Soft Hyphen
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x200B)!...Unicode.Scalar(0x200D)!)) // U+200B ZWS, U+200C ZWNJ, U+200D ZWJ
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x2060)!...Unicode.Scalar(0x2064)!)) // U+2060 Word Joiner, U+2061-U+2064 invisible math operators
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0xFEFF)!...Unicode.Scalar(0xFEFF)!)) // U+FEFF BOM / Zero Width No-Break Space
 
-    // Note: CharacterSet.inverted doesn't properly include supplementary planes (U+10000+)
-    // We must explicitly include them. Unicode planes:
-    // - BMP (U+0000-U+FFFF) - included via asciiRange.inverted
+    // Note: CharacterSet.inverted doesn't properly include supplementary planes (U+10000+).
+    // Using .inverted on an ASCII-range set also leaks supplementary scalars into the result on
+    // some Foundation versions, which then causes the .subtracting() corruption bug (see below).
+    // We therefore enumerate non-ASCII BMP explicitly via two contiguous ranges that skip the
+    // UTF-16 surrogate block (U+D800-U+DFFF, not valid Swift Unicode.Scalar values).
+    // Unicode planes included:
+    // - BMP (U+0000-U+FFFF) - non-ASCII portion added via two explicit ranges below
     // - SMP (U+10000-U+1FFFF) - Supplementary Multilingual Plane (emoji, historic scripts)
     // - SIP (U+20000-U+2FFFF) - Supplementary Ideographic Plane (CJK)
     // - TIP (U+30000-U+3FFFF) - Tertiary Ideographic Plane
     // - Planes 4-13 (U+40000-U+DFFFF) - Unassigned
     // - SSP (U+E0000-U+EFFFF) - Supplementary Special-purpose Plane
+    //   * Tags block (U+E0000-U+E007F) rejected via explicit scalar guard in parsing functions
     // - PUA (U+F0000-U+10FFFF) - Private Use Areas
+    private static let nonAsciiBmpLow: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0x0080)!...Unicode.Scalar(0xD7FF)!) // non-ASCII BMP, pre-surrogate
+    private static let nonAsciiBmpHigh: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0xE000)!...Unicode.Scalar(0xFFFF)!) // non-ASCII BMP, post-surrogate
     private static let supplementaryPlanes: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0x10000)!...Unicode.Scalar(0x10FFFF)!)
 
-    // Note: CharacterSet has a bug where .subtracting() corrupts supplementary plane data
-    // We must add supplementaryPlanes LAST, after all subtractions are complete
+    // Note: CharacterSet has a bug where .subtracting() corrupts supplementary plane data.
+    // Using explicit BMP ranges above (instead of .inverted) ensures no supplementary scalars
+    // are present before any .subtracting() call, making the subtractions reliable.
+    // supplementaryPlanes must still be added LAST via .union().
     private static let atextUnicodeCharacterSet: CharacterSet = atextCharacterSet
-        .union(CharacterSet(charactersIn: asciiRange).inverted) // BMP non-ASCII
+        .union(nonAsciiBmpLow)  // non-ASCII BMP, pre-surrogate
+        .union(nonAsciiBmpHigh) // non-ASCII BMP, post-surrogate
         .subtracting(CharacterSet(charactersIn: c1ControlRange)) // Exclude C1 control characters per RFC5198
         .subtracting(bidiFormattingChars) // Exclude bidirectional formatting (security)
         .subtracting(deprecatedFormatChars) // Exclude deprecated format characters
         .subtracting(bmpPrivateUseChars) // Exclude BMP Private Use Area (U+E000-U+F8FF)
+        .subtracting(zeroWidthAndInvisibleChars) // Exclude invisible format characters (spoofing prevention)
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
     // RFC 952/1123: domain labels are LDH (letters, digits, hyphens); Unicode letters are
@@ -330,14 +349,15 @@ public final class EmailSyntaxValidator {
     private static let qtextSMTPCharacterSet: CharacterSet = CharacterSet(charactersIn: qtextSMTP1)
         .union(CharacterSet(charactersIn: qtextSMTP2))
         .union(CharacterSet(charactersIn: qtextSMTP3))
-    // Note: CharacterSet has a bug where .subtracting() corrupts supplementary plane data
-    // We must add supplementaryPlanes LAST, after all subtractions are complete
+    // Same Foundation bug note applies; use explicit BMP ranges and add supplementaryPlanes last.
     private static let qtextUnicodeSMTPCharacterSet = qtextSMTPCharacterSet
-        .union(CharacterSet(charactersIn: asciiRange).inverted) // BMP non-ASCII
+        .union(nonAsciiBmpLow)  // non-ASCII BMP, pre-surrogate
+        .union(nonAsciiBmpHigh) // non-ASCII BMP, post-surrogate
         .subtracting(CharacterSet(charactersIn: c1ControlRange)) // Exclude C1 control characters per RFC5198
         .subtracting(bidiFormattingChars) // Exclude bidirectional formatting (security)
         .subtracting(deprecatedFormatChars) // Exclude deprecated format characters
         .subtracting(bmpPrivateUseChars) // Exclude BMP Private Use Area (U+E000-U+F8FF)
+        .subtracting(zeroWidthAndInvisibleChars) // Exclude invisible format characters (spoofing prevention)
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
     private static func extractDotAtom(_ candidate: String, compatibility: Compatibility) -> String? {
@@ -353,7 +373,13 @@ public final class EmailSyntaxValidator {
               dotAtom.utf8.count <= 64,
               !dotAtom.hasPrefix("."),
               !dotAtom.hasSuffix("."),
-              dotAtom.components(separatedBy: ".").allSatisfy({ $0.count > 0 && $0.rangeOfCharacter(from: disallowedCharacterSet) == nil })
+              dotAtom.components(separatedBy: ".").allSatisfy({ label in
+                  label.count > 0
+                      && label.rangeOfCharacter(from: disallowedCharacterSet) == nil
+                      // Reject Unicode Tags block (U+E0000-U+E007F): deprecated invisible-text
+                      // characters included in supplementaryPlanes but unsafe for email.
+                      && !label.unicodeScalars.contains(where: { $0.value >= 0xE0000 && $0.value <= 0xE007F })
+              })
         else {
             return nil
         }
@@ -384,6 +410,19 @@ public final class EmailSyntaxValidator {
             guard let characterScalar = character.unicodeScalars.first,
                   character.unicodeScalars.count <= maxScalars
             else {
+                return nil
+            }
+            // Invisible/format scalars can combine with an adjacent base character into a single
+            // grapheme cluster. The CharacterSet check below only examines the first scalar, so
+            // security-excluded scalars that appear as combining elements would slip through.
+            // Scan every scalar in the cluster explicitly to prevent this.
+            guard !character.unicodeScalars.contains(where: { s in
+                s.value == 0x00AD ||                          // U+00AD Soft Hyphen
+                (s.value >= 0x200B && s.value <= 0x200D) ||   // U+200B-U+200D ZWS/ZWNJ/ZWJ
+                (s.value >= 0x2060 && s.value <= 0x2064) ||   // U+2060-U+2064 invisible format chars
+                s.value == 0xFEFF ||                          // U+FEFF BOM
+                (s.value >= 0xE0000 && s.value <= 0xE007F)    // U+E0000-U+E007F Unicode Tags block
+            }) else {
                 return nil
             }
             
