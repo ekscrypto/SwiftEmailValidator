@@ -165,15 +165,17 @@ public final class EmailSyntaxValidator {
                 localPart: .dotAtom(dotAtom),
                 originalCandidate: candidate,
                 hostCandidate: String(smtpCandidate.dropFirst(dotAtom.count + 1)),
+                compatibility: extractionCompatibility,
                 allowAddressLiteral: allowAddressLiteral,
                 domainValidator: domainValidator)
         }
-        
+
         if let quotedString = extractQuotedString(smtpCandidate, compatibility: extractionCompatibility) {
             return mailbox(
                 localPart: .quotedString(String(quotedString.cleaned)),
                 originalCandidate: candidate,
                 hostCandidate: String(smtpCandidate.dropFirst(quotedString.integral.count + 1)),
+                compatibility: extractionCompatibility,
                 allowAddressLiteral: allowAddressLiteral,
                 domainValidator: domainValidator)
         }
@@ -215,19 +217,19 @@ public final class EmailSyntaxValidator {
         return RFC2047Coder.encode(candidate)
     }
     
-    private static func mailbox(localPart: Mailbox.LocalPart, originalCandidate: String, hostCandidate: String, allowAddressLiteral: Bool, domainValidator: (String) -> Bool) -> Mailbox? {
-        
-        guard let host = extractHost(from: hostCandidate, allowAddressLiteral: allowAddressLiteral, domainValidator: domainValidator) else {
+    private static func mailbox(localPart: Mailbox.LocalPart, originalCandidate: String, hostCandidate: String, compatibility: Compatibility, allowAddressLiteral: Bool, domainValidator: (String) -> Bool) -> Mailbox? {
+
+        guard let host = extractHost(from: hostCandidate, compatibility: compatibility, allowAddressLiteral: allowAddressLiteral, domainValidator: domainValidator) else {
             return nil
         }
-        
+
         return Mailbox(
             email: originalCandidate,
             localPart: localPart,
             host: host)
     }
-    
-    private static func extractHost(from candidate: String, allowAddressLiteral: Bool, domainValidator: (String) -> Bool) -> Mailbox.Host? {
+
+    private static func extractHost(from candidate: String, compatibility: Compatibility, allowAddressLiteral: Bool, domainValidator: (String) -> Bool) -> Mailbox.Host? {
 
         if candidate.hasPrefix("[") {
             return extractHostLiteral(from: candidate, allowAddressLiteral: allowAddressLiteral)
@@ -239,6 +241,11 @@ public final class EmailSyntaxValidator {
         // RFC 1035: total domain must be ≤253 octets
         guard candidate.utf8.count <= 253 else { return nil }
 
+        // In .ascii mode use the strict LDH-only set (A-Z, a-z, 0-9, hyphen).
+        // Punycode ACE labels (xn--…) are naturally LDH and pass without special handling.
+        // In .unicode / .asciiWithUnicodeExtension modes allow Unicode U-labels per RFC 5891.
+        let labelCharacterSet = compatibility == .ascii ? asciiDomainLabelCharacterSet : domainLabelCharacterSet
+
         // Split without omitting empty subsequences so that consecutive dots (empty labels),
         // leading dots, and trailing dots are all caught by the per-label checks below.
         let labels = candidate.split(separator: ".", omittingEmptySubsequences: false)
@@ -248,7 +255,7 @@ public final class EmailSyntaxValidator {
                 && s.utf8.count <= 63    // RFC 1035: each label ≤63 octets
                 && !s.hasPrefix("-")     // RFC 1123: no leading hyphen
                 && !s.hasSuffix("-")     // RFC 1123: no trailing hyphen
-                && s.unicodeScalars.allSatisfy({ domainLabelCharacterSet.contains($0) })
+                && s.unicodeScalars.allSatisfy({ labelCharacterSet.contains($0) })
         }) else {
             return nil
         }
@@ -344,6 +351,13 @@ public final class EmailSyntaxValidator {
     // additionally allowed for IDN U-labels per RFC 5891.
     private static let domainLabelCharacterSet: CharacterSet = CharacterSet.letters
         .union(CharacterSet(charactersIn: "0123456789-"))
+
+    // Strict ASCII LDH set used when compatibility == .ascii.
+    // Punycode ACE labels (xn--…) are naturally LDH and pass this check without special handling.
+    private static let asciiDomainLabelCharacterSet: CharacterSet = CharacterSet(charactersIn: alphaLowerRange)
+        .union(CharacterSet(charactersIn: alphaUpperRange))
+        .union(CharacterSet(charactersIn: digitRange))
+        .union(CharacterSet(charactersIn: "-"))
 
     private static let quotedPairSMTP: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x20)!...Unicode.Scalar(0x7E)!
     private static let qtextSMTP1: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x20)!...Unicode.Scalar(0x21)!

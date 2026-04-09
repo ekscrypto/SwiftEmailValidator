@@ -140,6 +140,30 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: "한@x.한국", compatibility: .ascii), "Unicode in email addresses should not be allowed in ASCII compatibility mode")
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: "\"한\"@x.한국", compatibility: .ascii), "Unicode in email addresses should not be allowed in ASCII compatibility mode")
     }
+
+    func testAsciiRejectsUnicodeDomain() {
+        // In .ascii mode the domain must also be ASCII-only (LDH labels or Punycode).
+        // A Unicode U-label like 例え or 한국 must be rejected even when the local part is ASCII.
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@例え.jp", compatibility: .ascii, domainValidator: permissive),
+            "Unicode domain label must be rejected in .ascii mode"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@x.한국", compatibility: .ascii, domainValidator: permissive),
+            "Unicode TLD must be rejected in .ascii mode"
+        )
+        // Punycode ACE form is LDH and must be accepted
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user@xn--eckwd4c7c.jp", compatibility: .ascii, domainValidator: permissive),
+            "Punycode ACE label must be accepted in .ascii mode (it is LDH)"
+        )
+        // Unicode domain must still be accepted in .unicode mode
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user@例え.jp", compatibility: .unicode, domainValidator: permissive),
+            "Unicode domain label must be accepted in .unicode mode"
+        )
+    }
     
     func testUnicodeCompatibility() {
         XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "한@x.한국", compatibility: .unicode)?.localPart, .dotAtom("한"), "Unicode email addresses should be allowed in Unicode compatibility")
