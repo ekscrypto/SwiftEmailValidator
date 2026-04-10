@@ -208,7 +208,7 @@ public final class EmailSyntaxValidator {
             return nil
         }
 
-        guard candidate.rangeOfCharacter(from: CharacterSet(charactersIn: asciiRange).inverted) != nil else {
+        guard candidate.rangeOfCharacter(from: nonAsciiPresenceCheckSet) != nil else {
             // There are no Unicode characters to encode, so the string was already validated to the maximum extent allowed
             return nil
         }
@@ -292,6 +292,9 @@ public final class EmailSyntaxValidator {
         .union(CharacterSet(charactersIn: digitRange))
         .union(CharacterSet(charactersIn: #"!#$%&'*+-/=?^_`{|}~"#)) // Ref RFC5322 section 3.2.3 Atom, definition of atext
     private static let asciiRange: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x00)!...Unicode.Scalar(0x7F)!
+    // Cached for candidateForRfc2047. .inverted on a BMP-only range is safe here; a false
+    // negative on a supplementary-plane scalar just skips auto-encoding (no security impact).
+    private static let nonAsciiPresenceCheckSet: CharacterSet = CharacterSet(charactersIn: asciiRange).inverted
 
     // RFC6531 extends atext to include UTF8-non-ascii (U+0080+)
     // RFC5198 Section 2: Control characters (U+0000-U+001F, U+007F-U+009F) should be avoided
@@ -327,8 +330,10 @@ public final class EmailSyntaxValidator {
     // - TIP (U+30000-U+3FFFF) - Tertiary Ideographic Plane
     // - Planes 4-13 (U+40000-U+DFFFF) - Unassigned
     // - SSP (U+E0000-U+EFFFF) - Supplementary Special-purpose Plane
-    //   * Tags block (U+E0000-U+E007F) rejected via explicit scalar guard in parsing functions
+    //   * Entirely rejected via explicit scalar guard in parsing functions
+    //   * Covers Tags block, unassigned gaps, and Variation Selectors Supplement
     // - PUA (U+F0000-U+10FFFF) - Private Use Areas
+    //   * Entirely rejected via explicit scalar guard in parsing functions
     private static let nonAsciiBmpLow: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0x0080)!...Unicode.Scalar(0xD7FF)!) // non-ASCII BMP, pre-surrogate
     private static let nonAsciiBmpHigh: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0xE000)!...Unicode.Scalar(0xFFFF)!) // non-ASCII BMP, post-surrogate
     private static let supplementaryPlanes: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0x10000)!...Unicode.Scalar(0x10FFFF)!)
@@ -399,12 +404,10 @@ public final class EmailSyntaxValidator {
                       // Reject supplementary-plane ranges excluded from allowedCharacterSet via
                       // explicit scalar guards (Foundation CharacterSet.contains() is reliable for
                       // individual scalars, but belt-and-suspenders for these security-sensitive ranges):
-                      // U+E0000-U+E007F Unicode Tags block (deprecated invisible-text markup)
-                      // U+E0100-U+E01EF Variation Selectors Supplement (invisible combiners, spoofing)
+                      // U+E0000-U+EFFFF: entire SSP (Tags block, unassigned gaps, VS Supplement)
+                      // U+F0000-U+10FFFF: Supplementary PUA-A/B
                       && !label.unicodeScalars.contains(where: {
-                          ($0.value >= 0xE0000 && $0.value <= 0xE007F)   // Unicode Tags block
-                          || ($0.value >= 0xE0100 && $0.value <= 0xE01EF) // Variation Selectors Supplement
-                          || ($0.value >= 0xF0000 && $0.value <= 0x10FFFF) // Supplementary PUA-A/B
+                          ($0.value >= 0xE0000 && $0.value <= 0x10FFFF) // Entire SSP + PUA-A/B
                       })
               })
         else {
@@ -449,10 +452,8 @@ public final class EmailSyntaxValidator {
                 (s.value >= 0x2060 && s.value <= 0x2064) ||     // U+2060-U+2064 invisible format chars
                 s.value == 0xFEFF ||                            // U+FEFF BOM
                 (s.value >= 0xFE00 && s.value <= 0xFE0F) ||     // U+FE00-U+FE0F Variation Selectors
-                (s.value >= 0xE0000 && s.value <= 0xE007F) ||   // U+E0000-U+E007F Unicode Tags block
-                (s.value >= 0xE0100 && s.value <= 0xE01EF) ||   // U+E0100-U+E01EF Variation Selectors Supplement
                 (s.value == 0x2028 || s.value == 0x2029) ||     // U+2028 Line Sep, U+2029 Para Sep
-                (s.value >= 0xF0000 && s.value <= 0x10FFFF)     // Supplementary PUA-A/B
+                (s.value >= 0xE0000 && s.value <= 0x10FFFF)     // Entire SSP (Tags, unassigned gaps, VS Sup) + PUA-A/B
             }) else {
                 return nil
             }
@@ -491,7 +492,7 @@ public final class EmailSyntaxValidator {
 
             cleanedText.append(character)
             
-            guard String(character).rangeOfCharacter(from: allowedCharacterSet) != nil else {
+            guard character.unicodeScalars.allSatisfy({ allowedCharacterSet.contains($0) }) else {
                 return nil
             }
         }

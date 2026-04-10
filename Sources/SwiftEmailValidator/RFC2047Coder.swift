@@ -137,7 +137,7 @@ public final class RFC2047Coder {
             digitsCaptured += 1
             if digitsCaptured == 1 { continue nextCharacter }
             
-            guard value >= 0x20,
+            guard value >= 0x20 && value != 0x7F,
                   let decodedCharacter = String(data: Data([value]), encoding: stringEncoding)
             else {
                 return nil

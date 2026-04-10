@@ -810,6 +810,151 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         )
     }
 
+    // MARK: - S3: Control characters, source routes, bare IPv4, bidi/deprecated chars, unassigned SSP
+
+    func testControlCharsRejectedInLocalPart() {
+        // C0 controls (U+0000-U+001F) and DEL (U+007F) are absent from atextCharacterSet
+        // and qtextSMTPCharacterSet, so they must be rejected in both dot-atom and
+        // quoted-string local parts.
+        let permissive: (String) -> Bool = { _ in true }
+        let controlChars: [(String, String)] = [
+            ("\u{0001}", "U+0001 SOH (first C0 control)"),
+            ("\u{001F}", "U+001F US (last C0 control)"),
+            ("\u{007F}", "U+007F DEL"),
+        ]
+        for (char, name) in controlChars {
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part"
+            )
+        }
+    }
+
+    func testSourceRoutesRejected() {
+        // RFC 5321 deprecated source routes (@relay:user@domain). The leading '@' produces an
+        // empty string before the first '@', failing the dotAtom count > 0 check.
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "@relay.host,@relay2.host:user@domain.com",
+                domainValidator: permissive),
+            "Source-route format must be rejected (empty local part before first @)"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "@relay.host:user@domain.com",
+                domainValidator: permissive),
+            "Single-relay source-route must also be rejected"
+        )
+    }
+
+    func testBareIPv4AcceptedAsDomainWithPermissiveValidator() {
+        // Without brackets, 192.168.1.1 is syntactically valid as four LDH labels composed
+        // entirely of digits. A permissive domain validator accepts it; the default PSL-based
+        // validator rejects it. Use allowAddressLiteral:true with [192.168.1.1] for IP literals.
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user@192.168.1.1", domainValidator: permissive),
+            "Bare IPv4 (no brackets) passes as an LDH domain with a permissive domain validator"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@192.168.1.1"),
+            "Bare IPv4 (no brackets) must be rejected by the default PSL-based domain validator"
+        )
+    }
+
+    func testBidiMarksRejectedInQuotedStringLocalPart() {
+        // Bidirectional formatting marks (U+200E-U+200F, U+202A-U+202E, U+2066-U+2069) are
+        // removed from qtextUnicodeSMTPCharacterSet via .subtracting(bidiFormattingChars).
+        // The per-scalar allSatisfy check (Bug 2 fix) ensures every scalar in a grapheme
+        // cluster is validated, not just the first one.
+        let permissive: (String) -> Bool = { _ in true }
+        let bidiChars: [(String, String)] = [
+            ("\u{200E}", "U+200E Left-to-Right Mark"),
+            ("\u{200F}", "U+200F Right-to-Left Mark"),
+            ("\u{202A}", "U+202A Left-to-Right Embedding"),
+            ("\u{202D}", "U+202D Left-to-Right Override"),
+            ("\u{202E}", "U+202E Right-to-Left Override"),
+            ("\u{2066}", "U+2066 Left-to-Right Isolate"),
+            ("\u{2069}", "U+2069 Pop Directional Isolate"),
+        ]
+        for (char, name) in bidiChars {
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part"
+            )
+            // Also verify rejection in dot-atom (covered by atextUnicodeCharacterSet exclusion)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part"
+            )
+        }
+    }
+
+    func testDeprecatedFormatCharsRejectedInLocalPart() {
+        // Deprecated Unicode format characters (U+206A-U+206F) are removed from both
+        // atextUnicodeCharacterSet and qtextUnicodeSMTPCharacterSet via
+        // .subtracting(deprecatedFormatChars).
+        let permissive: (String) -> Bool = { _ in true }
+        let deprecatedChars: [(String, String)] = [
+            ("\u{206A}", "U+206A Inhibit Symmetric Swapping (first deprecated format char)"),
+            ("\u{206F}", "U+206F Nominal Digit Shapes (last deprecated format char)"),
+        ]
+        for (char, name) in deprecatedChars {
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part"
+            )
+        }
+    }
+
+    func testUnassignedSSPCharsRejectedInLocalPart() {
+        // The entire Supplementary Special-Purpose Plane (SSP, U+E0000-U+EFFFF) must be
+        // rejected. The SSP contains the deprecated Tags block (U+E0000-U+E007F), the
+        // Variation Selectors Supplement (U+E0100-U+E01EF), and two currently-unassigned
+        // gaps (U+E0080-U+E00FF and U+E01F0-U+EFFFF). All are invisible or undefined and
+        // have no legitimate use in email addresses. The explicit scalar guard covers the
+        // full range U+E0000-U+10FFFF (SSP + Supplementary PUA-A/B).
+        let permissive: (String) -> Bool = { _ in true }
+        let unassignedSSP: [(Unicode.Scalar, String)] = [
+            (Unicode.Scalar(0xE0080)!, "U+E0080 unassigned SSP gap 1 (first)"),
+            (Unicode.Scalar(0xE00FF)!, "U+E00FF unassigned SSP gap 1 (last)"),
+            (Unicode.Scalar(0xE01F0)!, "U+E01F0 unassigned SSP gap 2 (first)"),
+            (Unicode.Scalar(0xEFFFF)!, "U+EFFFF unassigned SSP gap 2 (last)"),
+        ]
+        for (scalar, name) in unassignedSSP {
+            let char = String(scalar)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part (unassigned SSP)"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part (unassigned SSP)"
+            )
+        }
+        // Confirm SMP characters just below the SSP remain accepted
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{1F600}@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+1F600 (emoji, SMP) must remain accepted — only SSP and above are blocked"
+        )
+    }
+
     // MARK: - Bug 2: Supplementary PUA (U+F0000-U+10FFFF)
 
     func testSupplementaryPrivateUseAreaRejectedInLocalPart() {

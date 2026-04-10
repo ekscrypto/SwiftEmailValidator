@@ -76,6 +76,16 @@ final class RFC2047CoderTests: XCTestCase {
     func testDecodingLatin1QControlCharacter() {
         XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q?h=09ro@cinema.ca?="), "Hex value 09 resolves to a control character that should not be used in an email")
     }
+
+    func testDecodingQEncodingRejectsDELChar() {
+        // DEL (U+007F / 0x7F) sits outside the printable ASCII range (0x20-0x7E) and must
+        // be rejected from Q-encoded content. Previously value >= 0x20 passed 0x7F through.
+        XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q?=7F?="),
+                     "DEL character (0x7F) must be rejected from Q-encoded content")
+        // Confirm the byte just below (0x7E '~') is still accepted
+        XCTAssertEqual(RFC2047Coder.decode("=?iso-8859-1?q?=7E?="), "~",
+                       "0x7E ('~') is the last valid printable ASCII and must still decode")
+    }
     
     func testDecodingLatin1QIncompleteHex() {
         XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q?hero@cinema.c=3?="), "Failure to find 2 hex digits after = should fail decoding")
