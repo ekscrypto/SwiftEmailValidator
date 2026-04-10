@@ -1133,10 +1133,59 @@ final class EmailSyntaxValidatorTests: XCTestCase {
                 compatibility: .unicode, domainValidator: permissive),
             "U+1F600 (emoji, SMP Plane 1) must still be accepted"
         )
-        XCTAssertNotNil(
+        // U+3FFFF is a Unicode §23.7 noncharacter (U+nFFFF pattern, n=3) and must be rejected.
+        // It was previously incorrectly asserted as accepted.
+        XCTAssertNil(
             EmailSyntaxValidator.mailbox(from: "user\u{3FFFF}@site.com",
                 compatibility: .unicode, domainValidator: permissive),
-            "U+3FFFF (last scalar of Plane 3 / TIP, assigned range boundary) must still be accepted"
+            "U+3FFFF (Plane 3 noncharacter per §23.7) must be rejected"
+        )
+    }
+
+    // MARK: - Plane 1–3 supplementary noncharacter exclusions
+
+    func testSupplementaryNonCharactersPlanes1Through3RejectedInLocalPart() {
+        // Unicode §23.7: for every plane n=1..16, U+nFFFE and U+nFFFF are permanently reserved
+        // noncharacters "forbidden for use in open interchange of Unicode text data."
+        // Planes 1 (SMP), 2 (SIP), and 3 (TIP) each have two such noncharacters that were
+        // previously not covered by the Planes 4-13 or SSP/PUA scalar guards.
+        let permissive: (String) -> Bool = { _ in true }
+        let plane123NonChars: [(Unicode.Scalar, String)] = [
+            (Unicode.Scalar(0x1FFFE)!, "U+1FFFE (Plane 1 / SMP noncharacter)"),
+            (Unicode.Scalar(0x1FFFF)!, "U+1FFFF (Plane 1 / SMP noncharacter)"),
+            (Unicode.Scalar(0x2FFFE)!, "U+2FFFE (Plane 2 / SIP noncharacter)"),
+            (Unicode.Scalar(0x2FFFF)!, "U+2FFFF (Plane 2 / SIP noncharacter)"),
+            (Unicode.Scalar(0x3FFFE)!, "U+3FFFE (Plane 3 / TIP noncharacter)"),
+            (Unicode.Scalar(0x3FFFF)!, "U+3FFFF (Plane 3 / TIP noncharacter)"),
+        ]
+        for (scalar, name) in plane123NonChars {
+            let char = String(scalar)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part (Unicode §23.7 noncharacter)"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part (Unicode §23.7 noncharacter)"
+            )
+        }
+        // Confirm adjacent assigned scalars remain accepted
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{1FFFD}@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+1FFFD (last assigned Plane 1 scalar, Linear B Syllabary) must remain accepted"
+        )
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{2FFFD}@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+2FFFD (last assigned Plane 2 scalar) must remain accepted"
+        )
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{3FFFD}@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+3FFFD (last assigned Plane 3 scalar) must remain accepted"
         )
     }
 }

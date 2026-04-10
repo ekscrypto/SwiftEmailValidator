@@ -412,11 +412,17 @@ public final class EmailSyntaxValidator {
                       // Reject supplementary-plane ranges excluded from allowedCharacterSet via
                       // explicit scalar guards (Foundation CharacterSet.contains() is reliable for
                       // individual scalars, but belt-and-suspenders for these security-sensitive ranges):
+                      // U+1FFFE-U+1FFFF: Plane 1 (SMP) noncharacters — Unicode §23.7 permanently reserved
+                      // U+2FFFE-U+2FFFF: Plane 2 (SIP) noncharacters — Unicode §23.7 permanently reserved
+                      // U+3FFFE-U+3FFFF: Plane 3 (TIP) noncharacters — Unicode §23.7 permanently reserved
                       // U+40000-U+DFFFF: Planes 4-13 (entirely unassigned in Unicode)
                       // U+E0000-U+EFFFF: entire SSP (Tags block, unassigned gaps, VS Supplement)
                       // U+F0000-U+10FFFF: Supplementary PUA-A/B
                       && !label.unicodeScalars.contains(where: {
-                          ($0.value >= 0x40000 && $0.value <= 0xDFFFF)   // Planes 4-13 (entirely unassigned)
+                          ($0.value == 0x1FFFE || $0.value == 0x1FFFF)   // Plane 1 noncharacters (§23.7)
+                          || ($0.value == 0x2FFFE || $0.value == 0x2FFFF) // Plane 2 noncharacters (§23.7)
+                          || ($0.value == 0x3FFFE || $0.value == 0x3FFFF) // Plane 3 noncharacters (§23.7)
+                          || ($0.value >= 0x40000 && $0.value <= 0xDFFFF)  // Planes 4-13 (entirely unassigned)
                           || ($0.value >= 0xE0000 && $0.value <= 0x10FFFF) // Entire SSP + PUA-A/B
                       })
               })
@@ -465,6 +471,9 @@ public final class EmailSyntaxValidator {
                 (s.value == 0x2028 || s.value == 0x2029) ||     // U+2028 Line Sep, U+2029 Para Sep
                 (s.value >= 0xFDD0 && s.value <= 0xFDEF) ||     // U+FDD0-U+FDEF Unicode noncharacters
                 (s.value == 0xFFFE || s.value == 0xFFFF) ||     // U+FFFE/U+FFFF BMP noncharacters
+                (s.value == 0x1FFFE || s.value == 0x1FFFF) ||   // Plane 1 noncharacters (§23.7)
+                (s.value == 0x2FFFE || s.value == 0x2FFFF) ||   // Plane 2 noncharacters (§23.7)
+                (s.value == 0x3FFFE || s.value == 0x3FFFF) ||   // Plane 3 noncharacters (§23.7)
                 (s.value >= 0x40000 && s.value <= 0xDFFFF) ||   // Planes 4-13 (entirely unassigned)
                 (s.value >= 0xE0000 && s.value <= 0x10FFFF)     // Entire SSP (Tags, unassigned gaps, VS Sup) + PUA-A/B
             }) else {
