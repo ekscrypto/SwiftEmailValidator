@@ -323,6 +323,19 @@ public final class EmailSyntaxValidator {
         .union(CharacterSet(charactersIn: Unicode.Scalar(0xFEFF)!...Unicode.Scalar(0xFEFF)!)) // U+FEFF BOM / Zero Width No-Break Space
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x2028)!...Unicode.Scalar(0x2029)!)) // U+2028 Line Separator, U+2029 Paragraph Separator
         .union(CharacterSet(charactersIn: Unicode.Scalar(0xFE00)!...Unicode.Scalar(0xFE0F)!)) // U+FE00-U+FE0F Variation Selectors (invisible combiners, spoofing)
+    // Unicode space-like characters (category Zs, excluding U+0020 SPACE which is already blocked
+    // by the atext definition). These have visible width but are visually indistinguishable from
+    // U+0020 in many fonts, enabling account-duplication / spoofing via addresses that look
+    // identical to a simple "username" but are treated as distinct by mail systems.
+    // U+2000-U+200A immediately precede U+200B-U+200D (which are already blocked as zero-width),
+    // so allowing them would be inconsistent with the rest of this exclusion set.
+    private static let unicodeSpaceChars: CharacterSet =
+        CharacterSet(charactersIn: Unicode.Scalar(0x00A0)!...Unicode.Scalar(0x00A0)!) // U+00A0 NO-BREAK SPACE
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x1680)!...Unicode.Scalar(0x1680)!)) // U+1680 OGHAM SPACE MARK
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x2000)!...Unicode.Scalar(0x200A)!)) // U+2000-U+200A EN QUAD through HAIR SPACE
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x202F)!...Unicode.Scalar(0x202F)!)) // U+202F NARROW NO-BREAK SPACE
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x205F)!...Unicode.Scalar(0x205F)!)) // U+205F MEDIUM MATHEMATICAL SPACE
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x3000)!...Unicode.Scalar(0x3000)!)) // U+3000 IDEOGRAPHIC SPACE
 
     // Note: CharacterSet.inverted doesn't properly include supplementary planes (U+10000+).
     // Using .inverted on an ASCII-range set also leaks supplementary scalars into the result on
@@ -357,6 +370,7 @@ public final class EmailSyntaxValidator {
         .subtracting(bmpPrivateUseChars) // Exclude BMP Private Use Area (U+E000-U+F8FF)
         .subtracting(zeroWidthAndInvisibleChars) // Exclude invisible format characters (spoofing prevention)
         .subtracting(unicodeNonCharacters) // Exclude permanently-reserved Unicode noncharacters (§23.7)
+        .subtracting(unicodeSpaceChars) // Exclude Unicode space-like chars (Zs category) — spoofing prevention
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
     // RFC 952/1123: domain labels are LDH (letters, digits, hyphens); Unicode letters are
@@ -388,6 +402,7 @@ public final class EmailSyntaxValidator {
         .subtracting(bmpPrivateUseChars) // Exclude BMP Private Use Area (U+E000-U+F8FF)
         .subtracting(zeroWidthAndInvisibleChars) // Exclude invisible format characters (spoofing prevention)
         .subtracting(unicodeNonCharacters) // Exclude permanently-reserved Unicode noncharacters (§23.7)
+        .subtracting(unicodeSpaceChars) // Exclude Unicode space-like chars (Zs category) — spoofing prevention
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
     private static func extractDotAtom(_ candidate: String, compatibility: Compatibility) -> String? {
@@ -464,8 +479,14 @@ public final class EmailSyntaxValidator {
             // Scan every scalar in the cluster explicitly to prevent this.
             guard !character.unicodeScalars.contains(where: { s in
                 s.value == 0x00AD ||                            // U+00AD Soft Hyphen
+                s.value == 0x00A0 ||                            // U+00A0 NO-BREAK SPACE (spoofing: looks like space)
+                s.value == 0x1680 ||                            // U+1680 OGHAM SPACE MARK (spoofing: looks like space)
+                (s.value >= 0x2000 && s.value <= 0x200A) ||     // U+2000-U+200A EN QUAD through HAIR SPACE (space-like)
                 (s.value >= 0x200B && s.value <= 0x200D) ||     // U+200B-U+200D ZWS/ZWNJ/ZWJ
+                s.value == 0x202F ||                            // U+202F NARROW NO-BREAK SPACE (spoofing: looks like space)
+                s.value == 0x205F ||                            // U+205F MEDIUM MATHEMATICAL SPACE (spoofing: looks like space)
                 (s.value >= 0x2060 && s.value <= 0x2065) ||     // U+2060-U+2065 invisible/reserved format chars
+                s.value == 0x3000 ||                            // U+3000 IDEOGRAPHIC SPACE (spoofing: looks like space)
                 s.value == 0xFEFF ||                            // U+FEFF BOM
                 (s.value >= 0xFE00 && s.value <= 0xFE0F) ||     // U+FE00-U+FE0F Variation Selectors
                 (s.value == 0x2028 || s.value == 0x2029) ||     // U+2028 Line Sep, U+2029 Para Sep

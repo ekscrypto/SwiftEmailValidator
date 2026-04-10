@@ -1188,4 +1188,86 @@ final class EmailSyntaxValidatorTests: XCTestCase {
             "U+3FFFD (last assigned Plane 3 scalar) must remain accepted"
         )
     }
+
+    // MARK: - Unicode space-like characters (Zs category) exclusion
+
+    func testUnicodeSpaceCharsRejectedInLocalPart() {
+        // Unicode space-like characters (Zs category, excluding U+0020 which is already blocked
+        // by the atext definition) must be rejected in both dot-atom and quoted-string local parts.
+        // They are visually indistinguishable from regular ASCII space (U+0020) in most fonts,
+        // enabling account-duplication / spoofing: an attacker could register
+        // "user\u{00A0}name@domain.com" which displays identically to "username@domain.com" or
+        // "user name@domain.com" (the latter being an invalid dot-atom anyway, but the former
+        // is a real, different account).  Consistent with already-blocked U+200B-U+200D (which
+        // immediately follow the U+2000-U+200A block).
+        let permissive: (String) -> Bool = { _ in true }
+        let spaceChars: [(Unicode.Scalar, String)] = [
+            (Unicode.Scalar(0x00A0)!, "U+00A0 NO-BREAK SPACE"),
+            (Unicode.Scalar(0x1680)!, "U+1680 OGHAM SPACE MARK"),
+            (Unicode.Scalar(0x2000)!, "U+2000 EN QUAD (first in space block)"),
+            (Unicode.Scalar(0x2004)!, "U+2004 THREE-PER-EM SPACE"),
+            (Unicode.Scalar(0x200A)!, "U+200A HAIR SPACE (last in space block)"),
+            (Unicode.Scalar(0x202F)!, "U+202F NARROW NO-BREAK SPACE"),
+            (Unicode.Scalar(0x205F)!, "U+205F MEDIUM MATHEMATICAL SPACE"),
+            (Unicode.Scalar(0x3000)!, "U+3000 IDEOGRAPHIC SPACE"),
+        ]
+        for (scalar, name) in spaceChars {
+            let ch = String(scalar)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(ch)name@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part (spoofing: visually space-like)"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(ch)name\"@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part (spoofing: visually space-like)"
+            )
+        }
+        // Confirm neighbours of the U+2000-U+200A block are handled correctly:
+        // U+200B (Zero Width Space) — already blocked as a zero-width char, must remain rejected.
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{200B}name@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+200B (ZWS, just above space block) must remain rejected"
+        )
+    }
+
+    // MARK: - Address literal edge cases (regression guard)
+
+    func testIPv6AddressLiteralEdgeCasesRejected() {
+        // These edge cases exercise the IPv6-literal parsing path with malformed input.
+        // All must be rejected regardless of the allowAddressLiteral flag.
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@[IPv6:]", allowAddressLiteral: true),
+            "Empty IPv6 literal (IPv6: with no address) must be rejected"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@[IPv6:not-valid]", allowAddressLiteral: true),
+            "Non-IPv6 string after IPv6: tag must be rejected"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@[SMTP:example.com]", allowAddressLiteral: true),
+            "Non-standard address literal type (SMTP:) must be rejected"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@[]", allowAddressLiteral: true),
+            "Empty address literal [] must be rejected"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@[ 127.0.0.1]", allowAddressLiteral: true),
+            "IPv4 literal with leading space must be rejected"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@[127.0.0.1 ]", allowAddressLiteral: true),
+            "IPv4 literal with trailing space must be rejected"
+        )
+        // Confirm a valid IPv6 literal still works
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user@[IPv6:::1]", allowAddressLiteral: true,
+                domainValidator: { _ in true }),
+            "Valid loopback IPv6 literal must still be accepted"
+        )
+    }
+
 }
