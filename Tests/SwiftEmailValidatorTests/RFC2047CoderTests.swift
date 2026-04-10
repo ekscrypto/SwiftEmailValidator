@@ -306,4 +306,23 @@ final class RFC2047CoderTests: XCTestCase {
         XCTAssertEqual(RFC2047Coder.decode("=?utf-8?b?aGVsbG8=?="), "hello",
                        "Clean base64 encoded word should decode correctly")
     }
+
+    // MARK: - Review: Test documenting a bug (will fail until code is fixed)
+
+    func testDecodingLatin1QC1ControlBytesRejected() {
+        // RFC 2047 Q-encoding for ISO-8859-1/2 must reject C1 control bytes (0x80–0x9F).
+        // Bug: the current guard (value >= 0x20 && value != 0x7F) lets bytes 0x80–0x9F through.
+        // String(data: Data([0x80]), encoding: .isoLatin1) succeeds and returns U+0080 (C1 control),
+        // so decode() returns a non-nil string containing a C1 character instead of nil.
+        // The fix is: (value >= 0x20 && value < 0x7F) || value >= 0xA0
+        XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q?=80?="),
+                     "0x80 (first C1 control) must be rejected from Q-encoded ISO-8859-1")
+        XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q?=90?="),
+                     "0x90 (C1 control mid-range) must be rejected from Q-encoded ISO-8859-1")
+        XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q?=9F?="),
+                     "0x9F (last C1 control) must be rejected from Q-encoded ISO-8859-1")
+        // 0xA0 is the first byte above the C1 range (non-breaking space in ISO-8859-1) and must pass
+        XCTAssertNotNil(RFC2047Coder.decode("=?iso-8859-1?q?=A0?="),
+                        "0xA0 (non-breaking space, first byte above C1 range) must be accepted")
+    }
 }

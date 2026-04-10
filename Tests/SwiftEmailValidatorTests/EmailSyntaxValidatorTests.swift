@@ -992,4 +992,126 @@ final class EmailSyntaxValidatorTests: XCTestCase {
             "U+1D400 (Mathematical Bold A, SMP) must still be accepted"
         )
     }
+
+    // MARK: - Review: Missing edge case tests (NUL / CRLF — correct rejection already implemented)
+
+    func testNulCharacterRejectedInLocalPart() {
+        // NUL (U+0000) is a C0 control character absent from both atextCharacterSet and
+        // qtextSMTPCharacterSet; it must be rejected in both dot-atom and quoted-string local parts.
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{0000}@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "NUL (U+0000) must be rejected in dot-atom local part"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "\"user\u{0000}\"@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "NUL (U+0000) must be rejected in quoted-string local part"
+        )
+    }
+
+    func testCrLfRejectedInLocalPart() {
+        // CR (U+000D) and LF (U+000A) are the SMTP line-terminator bytes.
+        // Allowing them in a local part enables SMTP header injection.
+        // Both are C0 controls absent from atextCharacterSet and qtextSMTPCharacterSet.
+        let permissive: (String) -> Bool = { _ in true }
+        for (char, name) in [("\u{000D}", "CR U+000D"), ("\u{000A}", "LF U+000A")] {
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part (SMTP injection prevention)"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part (SMTP injection prevention)"
+            )
+        }
+    }
+
+    // MARK: - Review: Tests documenting bugs (will fail until code is fixed)
+
+    func testUnicodeNonCharactersRejectedInLocalPart() {
+        // Unicode permanently-reserved noncharacters (U+FDD0–U+FDEF, U+FFFE, U+FFFF)
+        // have no defined semantics and per Unicode §23.7 are "forbidden for use in
+        // open interchange of Unicode text data."
+        // Bug: these fall in nonAsciiBmpHigh (0xE000–0xFFFF) and survive all
+        // .subtracting() calls — bmpPrivateUseChars only covers up to U+F8FF,
+        // and zeroWidthAndInvisibleChars does not list this range.
+        // The explicit scalar guard in extractDotAtom only starts at 0xE0000 (SSP),
+        // so U+FDD0–U+FFFF are currently accepted.
+        let permissive: (String) -> Bool = { _ in true }
+        let nonCharacters: [(Unicode.Scalar, String)] = [
+            (Unicode.Scalar(0xFDD0)!, "U+FDD0 (first noncharacter in FDD0–FDEF range)"),
+            (Unicode.Scalar(0xFDEF)!, "U+FDEF (last noncharacter in FDD0–FDEF range)"),
+            (Unicode.Scalar(0xFFFE)!, "U+FFFE (BMP noncharacter)"),
+            (Unicode.Scalar(0xFFFF)!, "U+FFFF (BMP noncharacter)"),
+        ]
+        for (scalar, name) in nonCharacters {
+            let char = String(scalar)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part"
+            )
+        }
+    }
+
+    func testReservedFormatCharU2065RejectedInLocalPart() {
+        // U+2065 is an unassigned/reserved code point that sits in the gap between
+        // zeroWidthAndInvisibleChars (ends at U+2064) and bidiFormattingChars (starts at U+2066).
+        // It should be excluded like its immediate neighbours U+2064 and U+2066.
+        // Bug: neither the CharacterSet nor the inline scalar guard in extractQuotedString
+        // covers this single code point.
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{2065}@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+2065 (reserved format char) must be rejected in dot-atom local part"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "\"user\u{2065}\"@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+2065 (reserved format char) must be rejected in quoted-string local part"
+        )
+        // Confirm neighbours remain correctly handled
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{2064}@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+2064 (Invisible Plus, already excluded) must still be rejected"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{2066}@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+2066 (LRI bidi char, already excluded) must still be rejected"
+        )
+    }
+
+    func testEscapedMultiScalarClusterRejectedInUnicodeQuotedString() {
+        // RFC 5321 §3.3: quoted-pair = "\" (VCHAR / WSP) — exactly one printable ASCII character.
+        // Bug: in Unicode mode the escape path checks only characterScalar (first scalar) against
+        // quotedPairSMTP (0x20–0x7E). A grapheme cluster with a non-ASCII combining scalar
+        // (e.g., e + U+0301 combining acute = decomposed "é", 2 scalars) passes because the
+        // first scalar 'e' is in the ASCII-printable range.
+        let permissive: (String) -> Bool = { _ in true }
+        // "\" followed by e+U+0301 (two-scalar grapheme cluster) in a quoted local part
+        let twoScalarEscaped = "\"\\" + "e\u{0301}" + "\"@site.com"
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: twoScalarEscaped, compatibility: .unicode,
+                domainValidator: permissive),
+            "Escaped grapheme cluster with non-ASCII combining scalar must be rejected (RFC 5321: quoted-pair is ASCII-only)"
+        )
+        // Single-scalar ASCII escape must remain valid
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "\"\\e\"@site.com", compatibility: .unicode,
+                domainValidator: permissive),
+            "Escaped single ASCII scalar must still be accepted"
+        )
+    }
 }
