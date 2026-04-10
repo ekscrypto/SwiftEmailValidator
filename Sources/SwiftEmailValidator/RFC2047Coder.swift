@@ -137,7 +137,10 @@ public final class RFC2047Coder {
             digitsCaptured += 1
             if digitsCaptured == 1 { continue nextCharacter }
             
-            guard value >= 0x20 && value != 0x7F,
+            // Reject C0 controls (0x00–0x1F), DEL (0x7F), and C1 controls (0x80–0x9F).
+            // The prior guard (>= 0x20 && != 0x7F) inadvertently admitted 0x80–0x9F, which
+            // String(data:encoding:isoLatin1) maps to U+0080–U+009F (C1 control characters).
+            guard (value >= 0x20 && value < 0x7F) || value >= 0xA0,
                   let decodedCharacter = String(data: Data([value]), encoding: stringEncoding)
             else {
                 return nil

@@ -307,14 +307,11 @@ final class RFC2047CoderTests: XCTestCase {
                        "Clean base64 encoded word should decode correctly")
     }
 
-    // MARK: - Review: Test documenting a bug (will fail until code is fixed)
+    // MARK: - C1 control byte rejection in Q-encoded ISO-8859-1/2
 
     func testDecodingLatin1QC1ControlBytesRejected() {
-        // RFC 2047 Q-encoding for ISO-8859-1/2 must reject C1 control bytes (0x80–0x9F).
-        // Bug: the current guard (value >= 0x20 && value != 0x7F) lets bytes 0x80–0x9F through.
-        // String(data: Data([0x80]), encoding: .isoLatin1) succeeds and returns U+0080 (C1 control),
-        // so decode() returns a non-nil string containing a C1 character instead of nil.
-        // The fix is: (value >= 0x20 && value < 0x7F) || value >= 0xA0
+        // C1 control bytes (0x80–0x9F) must be rejected from Q-encoded ISO-8859-1/2 words.
+        // They are not valid interchange characters and must not decode to C1 Unicode scalars.
         XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q?=80?="),
                      "0x80 (first C1 control) must be rejected from Q-encoded ISO-8859-1")
         XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q?=90?="),

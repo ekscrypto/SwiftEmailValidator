@@ -1030,17 +1030,12 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         }
     }
 
-    // MARK: - Review: Tests documenting bugs (will fail until code is fixed)
+    // MARK: - Unicode noncharacter and reserved codepoint exclusions
 
     func testUnicodeNonCharactersRejectedInLocalPart() {
         // Unicode permanently-reserved noncharacters (U+FDD0–U+FDEF, U+FFFE, U+FFFF)
         // have no defined semantics and per Unicode §23.7 are "forbidden for use in
-        // open interchange of Unicode text data."
-        // Bug: these fall in nonAsciiBmpHigh (0xE000–0xFFFF) and survive all
-        // .subtracting() calls — bmpPrivateUseChars only covers up to U+F8FF,
-        // and zeroWidthAndInvisibleChars does not list this range.
-        // The explicit scalar guard in extractDotAtom only starts at 0xE0000 (SSP),
-        // so U+FDD0–U+FFFF are currently accepted.
+        // open interchange of Unicode text data." Both local-part formats must reject them.
         let permissive: (String) -> Bool = { _ in true }
         let nonCharacters: [(Unicode.Scalar, String)] = [
             (Unicode.Scalar(0xFDD0)!, "U+FDD0 (first noncharacter in FDD0–FDEF range)"),
@@ -1064,11 +1059,8 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     }
 
     func testReservedFormatCharU2065RejectedInLocalPart() {
-        // U+2065 is an unassigned/reserved code point that sits in the gap between
-        // zeroWidthAndInvisibleChars (ends at U+2064) and bidiFormattingChars (starts at U+2066).
-        // It should be excluded like its immediate neighbours U+2064 and U+2066.
-        // Bug: neither the CharacterSet nor the inline scalar guard in extractQuotedString
-        // covers this single code point.
+        // U+2065 is unassigned/reserved and sits between invisible format chars (U+2060–U+2064)
+        // and bidi formatting chars (U+2066–U+2069). It must be excluded like its neighbours.
         let permissive: (String) -> Bool = { _ in true }
         XCTAssertNil(
             EmailSyntaxValidator.mailbox(from: "user\u{2065}@site.com",
@@ -1095,10 +1087,8 @@ final class EmailSyntaxValidatorTests: XCTestCase {
 
     func testEscapedMultiScalarClusterRejectedInUnicodeQuotedString() {
         // RFC 5321 §3.3: quoted-pair = "\" (VCHAR / WSP) — exactly one printable ASCII character.
-        // Bug: in Unicode mode the escape path checks only characterScalar (first scalar) against
-        // quotedPairSMTP (0x20–0x7E). A grapheme cluster with a non-ASCII combining scalar
-        // (e.g., e + U+0301 combining acute = decomposed "é", 2 scalars) passes because the
-        // first scalar 'e' is in the ASCII-printable range.
+        // A multi-scalar grapheme cluster in an escape position must be rejected even if its
+        // first scalar is ASCII-printable (e.g. e + U+0301 combining acute = 2 scalars).
         let permissive: (String) -> Bool = { _ in true }
         // "\" followed by e+U+0301 (two-scalar grapheme cluster) in a quoted local part
         let twoScalarEscaped = "\"\\" + "e\u{0301}" + "\"@site.com"
@@ -1112,6 +1102,41 @@ final class EmailSyntaxValidatorTests: XCTestCase {
             EmailSyntaxValidator.mailbox(from: "\"\\e\"@site.com", compatibility: .unicode,
                 domainValidator: permissive),
             "Escaped single ASCII scalar must still be accepted"
+        )
+    }
+
+    func testSupplementaryPlanes4Through13RejectedInLocalPart() {
+        // Planes 4–13 (U+40000–U+DFFFF) are entirely unassigned in Unicode and must be rejected.
+        let permissive: (String) -> Bool = { _ in true }
+        let planeProbes: [(Unicode.Scalar, String)] = [
+            (Unicode.Scalar(0x40000)!, "U+40000 (first scalar of Plane 4, unassigned)"),
+            (Unicode.Scalar(0x7FFFF)!, "U+7FFFF (last scalar of Plane 7, unassigned)"),
+            (Unicode.Scalar(0x80000)!, "U+80000 (first scalar of Plane 8, unassigned)"),
+            (Unicode.Scalar(0xDFFFF)!, "U+DFFFF (last scalar of Plane 13, unassigned)"),
+        ]
+        for (scalar, name) in planeProbes {
+            let char = String(scalar)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(char)@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in dot-atom local part"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"user\(char)\"@site.com",
+                    compatibility: .unicode, domainValidator: permissive),
+                "\(name) must be rejected in quoted-string local part"
+            )
+        }
+        // SMP (Plane 1) characters must remain accepted — the fix must not over-reach
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{1F600}@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+1F600 (emoji, SMP Plane 1) must still be accepted"
+        )
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "user\u{3FFFF}@site.com",
+                compatibility: .unicode, domainValidator: permissive),
+            "U+3FFFF (last scalar of Plane 3 / TIP, assigned range boundary) must still be accepted"
         )
     }
 }

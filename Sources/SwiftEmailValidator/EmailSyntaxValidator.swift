@@ -308,12 +308,18 @@ public final class EmailSyntaxValidator {
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x2066)!...Unicode.Scalar(0x2069)!)) // LRI, RLI, FSI, PDI
     private static let deprecatedFormatChars: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0x206A)!...Unicode.Scalar(0x206F)!) // Deprecated formatting
     private static let bmpPrivateUseChars: CharacterSet = CharacterSet(charactersIn: Unicode.Scalar(0xE000)!...Unicode.Scalar(0xF8FF)!) // BMP Private Use Area
+    // Unicode permanently-reserved noncharacters — §23.7: "forbidden for use in open interchange."
+    // U+FDD0–U+FDEF fall in nonAsciiBmpHigh (above bmpPrivateUseChars) and would survive all
+    // other subtractions without this explicit exclusion.
+    private static let unicodeNonCharacters: CharacterSet =
+        CharacterSet(charactersIn: Unicode.Scalar(0xFDD0)!...Unicode.Scalar(0xFDEF)!) // U+FDD0–U+FDEF permanently reserved noncharacters
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0xFFFE)!...Unicode.Scalar(0xFFFF)!)) // U+FFFE, U+FFFF BMP noncharacters
     // Invisible and zero-width format characters that produce no visible glyph.
     // Allowing them enables creating visually-identical but distinct email addresses (spoofing).
     private static let zeroWidthAndInvisibleChars: CharacterSet =
         CharacterSet(charactersIn: Unicode.Scalar(0x00AD)!...Unicode.Scalar(0x00AD)!) // U+00AD Soft Hyphen
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x200B)!...Unicode.Scalar(0x200D)!)) // U+200B ZWS, U+200C ZWNJ, U+200D ZWJ
-        .union(CharacterSet(charactersIn: Unicode.Scalar(0x2060)!...Unicode.Scalar(0x2064)!)) // U+2060 Word Joiner, U+2061-U+2064 invisible math operators
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x2060)!...Unicode.Scalar(0x2065)!)) // U+2060 Word Joiner, U+2061-U+2064 invisible math operators, U+2065 reserved
         .union(CharacterSet(charactersIn: Unicode.Scalar(0xFEFF)!...Unicode.Scalar(0xFEFF)!)) // U+FEFF BOM / Zero Width No-Break Space
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x2028)!...Unicode.Scalar(0x2029)!)) // U+2028 Line Separator, U+2029 Paragraph Separator
         .union(CharacterSet(charactersIn: Unicode.Scalar(0xFE00)!...Unicode.Scalar(0xFE0F)!)) // U+FE00-U+FE0F Variation Selectors (invisible combiners, spoofing)
@@ -350,6 +356,7 @@ public final class EmailSyntaxValidator {
         .subtracting(deprecatedFormatChars) // Exclude deprecated format characters
         .subtracting(bmpPrivateUseChars) // Exclude BMP Private Use Area (U+E000-U+F8FF)
         .subtracting(zeroWidthAndInvisibleChars) // Exclude invisible format characters (spoofing prevention)
+        .subtracting(unicodeNonCharacters) // Exclude permanently-reserved Unicode noncharacters (§23.7)
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
     // RFC 952/1123: domain labels are LDH (letters, digits, hyphens); Unicode letters are
@@ -380,6 +387,7 @@ public final class EmailSyntaxValidator {
         .subtracting(deprecatedFormatChars) // Exclude deprecated format characters
         .subtracting(bmpPrivateUseChars) // Exclude BMP Private Use Area (U+E000-U+F8FF)
         .subtracting(zeroWidthAndInvisibleChars) // Exclude invisible format characters (spoofing prevention)
+        .subtracting(unicodeNonCharacters) // Exclude permanently-reserved Unicode noncharacters (§23.7)
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
     private static func extractDotAtom(_ candidate: String, compatibility: Compatibility) -> String? {
@@ -404,10 +412,12 @@ public final class EmailSyntaxValidator {
                       // Reject supplementary-plane ranges excluded from allowedCharacterSet via
                       // explicit scalar guards (Foundation CharacterSet.contains() is reliable for
                       // individual scalars, but belt-and-suspenders for these security-sensitive ranges):
+                      // U+40000-U+DFFFF: Planes 4-13 (entirely unassigned in Unicode)
                       // U+E0000-U+EFFFF: entire SSP (Tags block, unassigned gaps, VS Supplement)
                       // U+F0000-U+10FFFF: Supplementary PUA-A/B
                       && !label.unicodeScalars.contains(where: {
-                          ($0.value >= 0xE0000 && $0.value <= 0x10FFFF) // Entire SSP + PUA-A/B
+                          ($0.value >= 0x40000 && $0.value <= 0xDFFFF)   // Planes 4-13 (entirely unassigned)
+                          || ($0.value >= 0xE0000 && $0.value <= 0x10FFFF) // Entire SSP + PUA-A/B
                       })
               })
         else {
@@ -449,10 +459,13 @@ public final class EmailSyntaxValidator {
             guard !character.unicodeScalars.contains(where: { s in
                 s.value == 0x00AD ||                            // U+00AD Soft Hyphen
                 (s.value >= 0x200B && s.value <= 0x200D) ||     // U+200B-U+200D ZWS/ZWNJ/ZWJ
-                (s.value >= 0x2060 && s.value <= 0x2064) ||     // U+2060-U+2064 invisible format chars
+                (s.value >= 0x2060 && s.value <= 0x2065) ||     // U+2060-U+2065 invisible/reserved format chars
                 s.value == 0xFEFF ||                            // U+FEFF BOM
                 (s.value >= 0xFE00 && s.value <= 0xFE0F) ||     // U+FE00-U+FE0F Variation Selectors
                 (s.value == 0x2028 || s.value == 0x2029) ||     // U+2028 Line Sep, U+2029 Para Sep
+                (s.value >= 0xFDD0 && s.value <= 0xFDEF) ||     // U+FDD0-U+FDEF Unicode noncharacters
+                (s.value == 0xFFFE || s.value == 0xFFFF) ||     // U+FFFE/U+FFFF BMP noncharacters
+                (s.value >= 0x40000 && s.value <= 0xDFFFF) ||   // Planes 4-13 (entirely unassigned)
                 (s.value >= 0xE0000 && s.value <= 0x10FFFF)     // Entire SSP (Tags, unassigned gaps, VS Sup) + PUA-A/B
             }) else {
                 return nil
@@ -470,7 +483,11 @@ public final class EmailSyntaxValidator {
             
             if escaped {
                 cleanedText.append(character)
-                guard quotedPairSMTP.contains(characterScalar) else {
+                // RFC 5321: quoted-pair = "\" (VCHAR / WSP) — exactly one printable ASCII scalar.
+                // A multi-scalar grapheme cluster (e.g. e + U+0301 combining acute) would have its
+                // first scalar pass quotedPairSMTP while the additional scalars go unchecked.
+                guard character.unicodeScalars.count == 1,
+                      quotedPairSMTP.contains(characterScalar) else {
                     return nil
                 }
                 escaped = false
