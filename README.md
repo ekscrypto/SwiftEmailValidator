@@ -266,6 +266,126 @@ If your application must restrict local parts to ASCII-range characters exclusiv
 
     EmailSyntaxValidator.correctlyFormatted(candidate, compatibility: .ascii)
 
+## Comparison with other Swift email validators
+
+**Last run:** 2026-04-23 &middot; **Toolchain:** Swift 6.3.1, macOS 26.0 (arm64) &middot; **Harness:** [`Benchmarks/`](Benchmarks/)
+
+The `Benchmarks/` SPM package runs the 195-case DemoApp corpus
+(`DemoApp/EmailValidation/Data/TestData.swift`, mirrored verbatim into
+`Benchmarks/Sources/EmailBench/TestData.swift`) through every competitor
+library we could consume as an SPM dependency. The harness is kept in a
+separate package so consumers of SwiftEmailValidator do not transitively
+pull the competitor dependencies.
+
+### Libraries tested
+
+| Library | Tested revision | RFC coverage | PSL integration |
+|---|---|---|---|
+| [SwiftEmailValidator](https://github.com/ekscrypto/SwiftEmailValidator) (this package) | 1.3.1 | RFC 822 / 2047 / 5321 / 5322 / 6531 | ✅ (pluggable via `domainValidator:`) |
+| [evanrobertson/EmailValidator](https://github.com/evanrobertson/EmailValidator) | `master` @ `ff80978` (untagged) | RFC 5322; optional i18n (RFC 653x) via `allowInternational:` | — |
+| [igorrendulic/MimeEmailParser](https://github.com/igorrendulic/MimeEmailParser) | 1.0.5 | RFC 5322 + RFC 2047 / 6532 | — |
+| [bdolewski/SwiftEmailValidator](https://github.com/bdolewski/SwiftEmailValidator) | `master` @ `85a0fc1` (regex vendored: the library's `EmailValidator` symbol has default/`internal` access and cannot be imported) | RFC 5322 (single regex) | — |
+| [jwelton/EmailValidator](https://github.com/jwelton/EmailValidator) | `master` @ `26946d9` (emulated via `NSDataDetector` to avoid a package-identity collision with evanrobertson's `EmailValidator`) | Apple `NSDataDetector` link detection (no documented RFC target) | — |
+
+Excluded from the harness:
+
+* **swift-standards/swift-emailaddress-standard** — its manifest uses
+  `.package(path: "../../swift-ietf/…")` and pins macOS 26; it is not
+  consumable as a Git SPM dependency.
+* **SwiftValidator / SwiftValidators / adamwaite-Validator** — general-purpose
+  form-field validators rather than RFC-focused email parsers.
+
+### Methodology
+
+* Each adapter declares a **reference mode** from the DemoApp's
+  `ValidationMethod` enum (e.g. `evanrobertson/EmailValidator (international)`
+  is compared against `.swiftEmailUnicode` expectations because that mode
+  accepts non-ASCII local parts). The DemoApp's per-case `expectedOverrides`
+  map is then consulted to derive the ground truth for each `(case, adapter)`
+  pair.
+* Several competitor libraries call Swift's `fatalError` on adversarial
+  inputs (out-of-bounds string indexing in their own parsers). `fatalError`
+  cannot be caught in-process, so those inputs are listed in
+  [`Benchmarks/Sources/EmailBench/SkipList.swift`](Benchmarks/Sources/EmailBench/SkipList.swift)
+  and omitted from the library's accuracy denominator. The harness surfaces
+  skipped counts + the input that crashed the library in a separate section
+  of the report — they are **not** silently treated as failures or passes.
+
+Reproduce:
+
+```bash
+cd Benchmarks
+swift run -c release EmailBench              # prints the table below
+swift run -c release EmailBench --verbose    # also lists every failing case
+```
+
+See [`Benchmarks/README.md`](Benchmarks/README.md) for the crash-discovery
+loop used to populate the skip list.
+
+### Results (195-case corpus)
+
+| Library | Passed | Failed | Skipped¹ | Accuracy² |
+|---|---:|---:|---:|---:|
+| SwiftEmailValidator (Unicode) | **195** | 0 | 0 | **100.0%** |
+| SwiftEmailValidator (ASCII + RFC 2047) | 188 | 7 | 0 | 96.4% |
+| SwiftEmailValidator (ASCII) | 185 | 10 | 0 | 94.9% |
+| evanrobertson/EmailValidator (ASCII) | 177 | 16 | 2 | 91.7% |
+| bdolewski/SwiftEmailValidator | 175 | 20 | 0 | 89.7% |
+| igorrendulic/MimeEmailParser | 163 | 30 | 2 | 84.5% |
+| evanrobertson/EmailValidator (international) | 150 | 40 | 5 | 78.9% |
+| jwelton/EmailValidator (NSDataDetector) | 110 | 85 | 0 | 56.4% |
+
+¹ Inputs that crash the library with Swift `fatalError`. Excluded from the
+  accuracy denominator. Details below.
+² Accuracy is computed over `Passed + Failed` only. Each adapter is graded
+  against the ground truth defined for its reference mode (see Methodology).
+
+### RFC 5322 scope: 10 corpus cases are not applicable to 5322-only libraries
+
+Of the 195 cases, **10 require extensions beyond RFC 5322** to validate as
+`expectedValid: true`:
+
+* 6 × `validUnicode` (Korean, emoji, combining marks, mathematical bold — need RFC 6531)
+* 3 × `validRFC2047` (B- and Q-encoded words — need RFC 2047)
+* 1 × `validBoundary` (16 × U+1D11E MUSICAL SYMBOL G CLEF — needs RFC 6531)
+
+The other 185 cases are fully applicable to any RFC 5322-only validator,
+including every invalid-rejection test. Excluding the 10 N/A cases from
+both numerator and denominator for the strictly 5322-only adapters yields:
+
+| Library | Within-scope passed | Within-scope failures | Accuracy (5322 scope) |
+|---|---:|---:|---:|
+| evanrobertson/EmailValidator (ASCII) | 177 | 6 | **96.7%** (177 / 183) |
+| bdolewski/SwiftEmailValidator | 175 | 10 | **94.6%** (175 / 185) |
+
+### Inputs that crash competitor libraries
+
+Recorded with the specific `fatalError` root cause, keyed by exact input:
+
+| Library | Input | Root cause |
+|---|---|---|
+| evanrobertson/EmailValidator (ASCII) | `user@[0.0.0]` | indexes past end while scanning incomplete IPv4 literal |
+| evanrobertson/EmailValidator (ASCII) | `user@[IPv6:]` | indexes past end on empty IPv6 literal |
+| evanrobertson/EmailValidator (international) | `한.భారత్@x.한국` | `fatalError` on international local part (this is a **valid** RFC 6531 address) |
+| evanrobertson/EmailValidator (international) | 16 × `𝄞` + `@site.com` | `fatalError` on 16 supplementary-plane scalars |
+| evanrobertson/EmailValidator (international) | 30 × `𝄞` + `@site.com` | `fatalError` on 30 supplementary-plane scalars |
+| evanrobertson/EmailValidator (international) | `user@[0.0.0]` | same IPv4-literal defect as ASCII mode |
+| evanrobertson/EmailValidator (international) | `user@[IPv6:]` | same IPv6-literal defect as ASCII mode |
+| igorrendulic/MimeEmailParser | `=?schtroomf?b?shackalaka?=` | `fatalError` decoding invalid base64 inside RFC 2047 encoded-word |
+| igorrendulic/MimeEmailParser | `=?utf-8?B?7?=` | `fatalError` decoding truncated base64 inside RFC 2047 encoded-word |
+
+SwiftEmailValidator, bdolewski, and jwelton-equivalent (NSDataDetector) did
+not crash on any of the 195 inputs.
+
+### Caveat
+
+These numbers reflect the 195 inputs in the SwiftEmailValidator corpus and
+the reference-mode mapping described above. A different corpus, or a
+different choice of reference mode per adapter, would produce different
+scores. The full test data and the adapter definitions are in
+[`Benchmarks/Sources/EmailBench/`](Benchmarks/Sources/EmailBench/) — run
+the harness yourself to verify or experiment.
+
 ## Reference Documents
 
 RFC822 - STANDARD FOR THE FORMAT OF ARPA INTERNET TEXT MESSAGES
