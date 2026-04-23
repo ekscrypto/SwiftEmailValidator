@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-04-23
+
+### Changed
+
+- **SwiftPublicSuffixList dependency bumped to 3.1.0.** v3.0 tightened
+  `PublicSuffixList.isUnrestricted(_:)` / `match(_:)` to reject non-ASCII
+  hostnames — IDN labels must be in ACE (Punycode) form. The default
+  `domainValidator` closure now calls `PublicSuffixList.ace(_:)` on the
+  domain before dispatching to `isUnrestricted(_:)`, so Unicode IDN
+  domains continue to validate exactly as they did on 1.3.0 with PSL 2.x.
+- `Mailbox.Host.domain(...)` still carries the original user-facing
+  string; only the validator dispatch uses the ACE form.
+
+### Migration
+
+Callers who pass a custom `domainValidator` closure to
+`correctlyFormatted(_:)` / `mailbox(from:)` and rely on the PSL default
+behavior via `PublicSuffixList.isUnrestricted(_:)` should wrap their call
+site with `PublicSuffixList.ace(_:)` if the closure receives Unicode IDN
+domains — e.g. `{ PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0), rules: myRules) }`.
+
 ## [1.2.0] - 2026-04-22
 
 ### Security

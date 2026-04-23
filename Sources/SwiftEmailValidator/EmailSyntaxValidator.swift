@@ -128,7 +128,7 @@ public final class EmailSyntaxValidator {
                                           options: [Options] = [],
                                           compatibility: Compatibility = .unicode,
                                           allowAddressLiteral: Bool = false,
-                                          domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted($0) }) -> Bool {
+                                          domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0)) }) -> Bool {
 
         mailbox(from: candidate,
                 options: options,
@@ -149,7 +149,7 @@ public final class EmailSyntaxValidator {
                                options: [Options] = [],
                                compatibility: Compatibility = .unicode,
                                allowAddressLiteral: Bool = false,
-                               domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted($0) }) -> Mailbox? {
+                               domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0)) }) -> Mailbox? {
         
         var smtpCandidate: String = candidate
         var extractionCompatibility: Compatibility = compatibility
