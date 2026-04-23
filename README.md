@@ -18,7 +18,7 @@ You can use The Swift Package Manager to install SwiftEmailValidator by adding i
         name: "MyApp",
         targets: [],
         dependencies: [
-            .Package(url: "https://github.com/ekscrypto/SwiftEmailValidator.git", .upToNextMajor(from: "1.2.0"))
+            .Package(url: "https://github.com/ekscrypto/SwiftEmailValidator.git", .upToNextMajor(from: "1.3.0"))
         ]
     )
 
@@ -120,60 +120,72 @@ The EmailSyntaxValidator functions all accept a domainValidator closure, which b
 
 ### EmailNormalizer
 
-Applies Unicode **NFKC** (Normalization Form Compatibility Composition) to an email string.
-NFKC collapses compatibility-equivalent scalars to a single canonical representation — fullwidth
-`＠` → `@`, ligature `ﬁ` → `fi`, superscript `²` → `2`, decomposed `e`+◌́ → precomposed `é`, etc.
-This is the form typically used for account de-duplication and comparison, because it maps
-visually-indistinguishable inputs to the same byte sequence.
+Two Unicode normalization helpers, intentionally separate from `EmailSyntaxValidator`
+(normalization and validation are composable but distinct concerns):
 
-`EmailNormalizer` is intentionally separate from `EmailSyntaxValidator`: normalization and
-validation are composable but distinct concerns. Pipe the output into the validator when you
-want both:
+* **`EmailNormalizer.nfc(_:)`** — Unicode **NFC** (Canonical Composition). Collapses canonically-
+  equivalent sequences such as decomposed `e` + ◌́ → precomposed `é`, but leaves compatibility
+  variants (fullwidth, ligatures, superscripts) alone. This is the form prescribed by
+  **RFC 6532 §3.1** for internationalized header-field comparison and by **RFC 5198** for
+  network interchange. Use it when you need a spec-compliant comparison key, or when you
+  intend to preserve the address for display, forwarding, or reply-to.
+* **`EmailNormalizer.nfkc(_:)`** — Unicode **NFKC** (Compatibility Composition). Additionally
+  folds compatibility variants: fullwidth `＠` → `@`, ligature `ﬁ` → `fi`, superscript `²` → `2`.
+  Use it for **anti-spoofing** or **account de-duplication** (matching Gmail/Outlook behaviour).
+  RFC 6532 §3.1 explicitly says NFKC **SHOULD NOT** be used, because compatibility folding can
+  destroy information needed to spell some names correctly. This library nevertheless ships it
+  as a documented deliberate deviation, because the de-duplication use case is common and
+  important. Use `nfc(_:)` if you need spec compliance or name-preservation fidelity.
+
+Both methods are pure Unicode transforms — they do not validate, do not lowercase, and do not
+strip whitespace. Pipe the output into the validator when you want both:
 
     import SwiftEmailValidator
 
-    let rawInput = "ｕｓｅｒ＠example.com"           // fullwidth letters and '@'
-    let normalized = EmailNormalizer.nfkc(rawInput)   // → "user@example.com"
-
-    if EmailSyntaxValidator.correctlyFormatted(normalized) {
-        // Store / compare `normalized`, not `rawInput`.
+    // Anti-spoofing pipeline (NFKC)
+    let rawInput   = "ｕｓｅｒ＠example.com"           // fullwidth letters and '@'
+    let dedupKey   = EmailNormalizer.nfkc(rawInput)   // → "user@example.com"
+    if EmailSyntaxValidator.correctlyFormatted(dedupKey) {
+        // Store / compare `dedupKey`, not `rawInput`.
     }
 
-Or, to both normalize and parse in one go:
+    // Spec-compliant pipeline (NFC, RFC 6532 §3.1)
+    let canonical  = EmailNormalizer.nfc(rawInput)    // → "ｕｓｅｒ＠example.com" (unchanged: NFC
+                                                      //    does not fold fullwidth)
 
-    if let mailbox = EmailSyntaxValidator.mailbox(from: EmailNormalizer.nfkc(rawInput)) {
-        // mailbox.localPart == .dotAtom("user")
-        // mailbox.host      == .domain("example.com")
-    }
-
-What `EmailNormalizer.nfkc(_:)` does **not** do:
+What `EmailNormalizer` does **not** do:
 
 * It does not validate syntax — normalization is a pure Unicode transform.
 * It does not lowercase — RFC 5321 §2.4 declares local parts case-sensitive.
 * It does not strip whitespace or perform any sanitization.
 
+#### Length is not preserved (NFKC)
+
+NFKC can substantially expand a string. `U+FDFA` (ARABIC LIGATURE SALLALLAHOU ALAYHE WASALLAM)
+expands to 18 scalars / 33 UTF-8 octets and contains ASCII SPACE characters. A short input can
+therefore exceed the 64-octet local-part limit (RFC 5321 §4.5.3.1.1) after normalization.
+**Always validate after normalizing, never the other way round.** NFC is effectively length-
+stable in practice and does not have this hazard.
+
 #### Behaviour inside quoted-string local parts
 
-NFKC is applied to the whole address as a single Unicode stream, but this is **safe
+Both forms are applied to the whole address as a single Unicode stream. This is **safe
 structurally**: the RFC 5321 delimiters `"` (U+0022), `\` (U+005C), and `@` (U+0040) are ASCII,
-and NFKC is a no-op on ASCII. The quoting structure is preserved and the output parses the same
-way as the input.
+and NFC/NFKC are no-ops on ASCII. The quoting structure is preserved and the output parses the
+same way as the input.
 
-Non-ASCII content *between* the quotes is normalized like the rest of the address. That is
-deliberate — the primary motivation for NFKC here is spoofing / account de-duplication, and
-an attacker who wraps a homograph in quotes would otherwise sidestep the check:
+For NFKC, non-ASCII content *between* the quotes is also normalized — **deliberately**, because
+the primary motivation is spoofing / account de-duplication and an attacker who wraps a
+homograph in quotes would otherwise sidestep the check:
 
     // All three of these collapse to the same canonical form after nfkc(_:):
     EmailNormalizer.nfkc("admin@example.com")           // "admin@example.com"
     EmailNormalizer.nfkc("ａｄｍｉｎ@example.com")       // "admin@example.com"
     EmailNormalizer.nfkc(#""ａｄｍｉｎ"@example.com"#)   // #""admin"@example.com"#
 
-RFC 6532 §3.1 recommends normalization without distinguishing quoted vs. unquoted local parts,
-so this is RFC-conformant.
-
-If your application needs the *exact* scalar sequence inside a quoted local part preserved
-(rare), parse the address first with `EmailSyntaxValidator.mailbox(from:)` and apply NFKC only
-to the components you choose to canonicalize.
+If your application needs the *exact* scalar sequence inside a quoted local part preserved,
+parse the address first with `EmailSyntaxValidator.mailbox(from:)` and apply normalization
+only to the components you choose to canonicalize.
 
 ### IPAddressSyntaxValidator
 
@@ -224,11 +236,12 @@ A practical consequence is that visually identical addresses can be treated as d
     // Both are valid — but they compare as unequal:
     precomposed == decomposed  // false
 
-If your application needs to treat these as the same address (e.g., for de-duplication or lookup), normalize the input with `String`'s built-in NFC support before validating:
+If your application needs to treat these as the same address (e.g., for de-duplication or lookup), normalize the input with `EmailNormalizer.nfc(_:)` (RFC 6532 §3.1) before validating:
 
-    import Foundation
-    let normalized = rawInput.precomposedStringWithCanonicalMapping  // NFC
+    let normalized = EmailNormalizer.nfc(rawInput)
     let isValid = EmailSyntaxValidator.correctlyFormatted(normalized)
+
+For anti-spoofing of fullwidth/ligature variants (e.g. `ａｄｍｉｎ` → `admin`), use `EmailNormalizer.nfkc(_:)` instead — see [EmailNormalizer](#emailnormalizer) above.
 
 ### Halfwidth and fullwidth Unicode forms
 
@@ -261,6 +274,9 @@ https://datatracker.ietf.org/doc/html/rfc822
 RFC2047 - MIME (Multipurpose Internet Mail Extensions) Part Three: Message Header Extensions for Non-ASCII Text
 https://datatracker.ietf.org/doc/html/rfc2047
 
+RFC5198 - Unicode Format for Network Interchange (NFC for transmission)
+https://datatracker.ietf.org/doc/html/rfc5198
+
 RFC5321 - Simple Mail Transfer Protocol
 https://datatracker.ietf.org/doc/html/rfc5321
 
@@ -269,3 +285,6 @@ https://datatracker.ietf.org/doc/html/rfc5322
 
 RFC6531 - SMTP Extension for Internationalized Email
 https://datatracker.ietf.org/doc/html/rfc6531
+
+RFC6532 - Internationalized Email Headers (NFC normalization, §3.1)
+https://datatracker.ietf.org/doc/html/rfc6532
