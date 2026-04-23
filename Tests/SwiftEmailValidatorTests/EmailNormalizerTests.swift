@@ -144,4 +144,74 @@ final class EmailNormalizerTests: XCTestCase {
         XCTAssertEqual(EmailNormalizer.nfkc(fullwidth), plain)
         XCTAssertEqual(EmailNormalizer.nfkc(mixed), plain)
     }
+
+    // MARK: - Length non-preservation — normalize → validate contract
+
+    func testNfkcExpansionIsRejectedByValidator() {
+        // U+FDFA (ARABIC LIGATURE SALLALLAHOU ALAYHE WASALLAM) NFKC-expands to 18 scalars
+        // including ASCII SPACE. The normalizer produces the expansion as-is; the downstream
+        // validator must reject it because atext disallows SPACE. This pins the
+        // "normalize-then-validate" contract: normalization is not a length-preserving
+        // sanitizer, and validation must run *after* normalization, not before.
+        let input = "user\u{FDFA}@example.com"
+        let normalized = EmailNormalizer.nfkc(input)
+
+        XCTAssertTrue(normalized.contains(" "),
+                      "Precondition: U+FDFA NFKC expansion must contain ASCII SPACE")
+        XCTAssertGreaterThan(normalized.utf8.count, input.utf8.count,
+                             "Precondition: NFKC must expand this input")
+
+        let validator: (String) -> Bool = { PublicSuffixList.isUnrestricted($0, rules: [["com"]]) }
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted(normalized,
+                                                               compatibility: .unicode,
+                                                               domainValidator: validator),
+                       "Expanded form contains SPACE and must not validate as a mailbox")
+    }
+
+    // MARK: - NFC API (RFC 6532 §3.1 compliant)
+
+    func testNfcAsciiIsUnchanged() {
+        XCTAssertEqual(EmailNormalizer.nfc("user@example.com"), "user@example.com")
+    }
+
+    func testNfcComposesDecomposedAccent() {
+        // Canonical composition: the one thing NFC and NFKC agree on.
+        let decomposed = "cafe\u{0301}@example.com"
+        let precomposed = "caf\u{00E9}@example.com"
+        XCTAssertEqual(EmailNormalizer.nfc(decomposed), precomposed)
+    }
+
+    func testNfcDoesNotFoldCompatibilityVariants() {
+        // This is the point of NFC-vs-NFKC: fullwidth, ligature, and superscript
+        // forms survive NFC untouched. RFC 6532 §3.1 prescribes this behavior so that
+        // name spellings are preserved.
+        let fullwidthAt = "user\u{FF20}example.com"
+        XCTAssertEqual(EmailNormalizer.nfc(fullwidthAt), fullwidthAt)
+
+        let ligature = "\u{FB01}nance@example.com"
+        XCTAssertEqual(EmailNormalizer.nfc(ligature), ligature)
+
+        let superscript = "user\u{00B2}@example.com"
+        XCTAssertEqual(EmailNormalizer.nfc(superscript), superscript)
+    }
+
+    func testNfcPreservesCaseAndWhitespace() {
+        XCTAssertEqual(EmailNormalizer.nfc("User.Name@Example.COM"), "User.Name@Example.COM")
+        XCTAssertEqual(EmailNormalizer.nfc("  user@example.com  "), "  user@example.com  ")
+    }
+
+    func testNfcAndNfkcAgreeOnPureAscii() {
+        let ascii = "simple.user+tag@example.com"
+        XCTAssertEqual(EmailNormalizer.nfc(ascii), EmailNormalizer.nfkc(ascii))
+        XCTAssertEqual(EmailNormalizer.nfc(ascii), ascii)
+    }
+
+    func testNfcAndNfkcDivergeOnCompatibilityInput() {
+        // Sanity check that the two APIs are not aliases — callers choosing NFC get a
+        // materially different result than callers choosing NFKC.
+        let input = "user\u{FF20}example.com" // fullwidth '＠'
+        XCTAssertNotEqual(EmailNormalizer.nfc(input), EmailNormalizer.nfkc(input))
+        XCTAssertEqual(EmailNormalizer.nfc(input), input)
+        XCTAssertEqual(EmailNormalizer.nfkc(input), "user@example.com")
+    }
 }

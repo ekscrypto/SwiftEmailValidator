@@ -42,9 +42,14 @@ public enum EmailNormalizer {
     /// - `ℌ` (U+210C BLACK-LETTER CAPITAL H) → `H`
     /// - Decomposed `e` + U+0301 COMBINING ACUTE → precomposed `é`
     ///
-    /// This is the normalization form used by many large mail providers for equality
-    /// comparison and account de-duplication, because it maps visually-indistinguishable
-    /// inputs to the same byte sequence.
+    /// ## Deliberate deviation from RFC 6532 §3.1
+    /// RFC 6532 §3.1 recommends NFC (SHOULD) and explicitly says NFKC SHOULD NOT be used,
+    /// because compatibility mappings can destroy information needed to spell some names
+    /// correctly. This module nevertheless offers NFKC because the target use case is
+    /// **anti-spoofing and account de-duplication** — matching the behavior of large mail
+    /// providers such as Gmail, where a homograph like `ａｄｍｉｎ` (fullwidth) must collapse
+    /// to `admin`. Applications that need **name-preserving** normalization (display,
+    /// forwarding, reply-to) should use ``nfc(_:)`` instead, which follows the RFC.
     ///
     /// ## What this function does NOT do
     /// - It does not validate syntax. Input that was not a valid email address remains one;
@@ -52,28 +57,78 @@ public enum EmailNormalizer {
     /// - It does not lowercase. RFC 5321 §2.4 declares local parts case-sensitive; lowercasing
     ///   must be an explicit, separate decision (and typically is applied only to the domain).
     /// - It does not distinguish local part from domain. The whole string is normalized as a
-    ///   single Unicode stream — which is the correct behavior for NFKC, since the function
-    ///   operates on scalars, not on email structure.
+    ///   single Unicode stream — the function operates on scalars, not on email structure.
+    ///
+    /// ## Length is not preserved — always normalize *before* validating
+    /// NFKC can substantially expand a string. U+FDFA (ARABIC LIGATURE SALLALLAHOU ALAYHE
+    /// WASALLAM) expands to 18 scalars / 33 UTF-8 octets, and its expansion contains ASCII
+    /// SPACE characters. A 10-scalar input can therefore exceed the 64-octet local-part limit
+    /// (RFC 5321 §4.5.3.1.1) or the 253-octet total mailbox limit (§4.5.3.1.2) after
+    /// normalization. Always run validation on the normalized output, never the other way
+    /// round; never assume the output fits the same bounds as the input.
     ///
     /// ## Quoted-string local parts
-    /// NFKC is applied to the whole string, including content *inside* quoted local parts. This
-    /// is safe structurally: the RFC 5321 delimiters — `"` (U+0022), `\` (U+005C), and `@`
-    /// (U+0040) — are ASCII and NFKC is a no-op on ASCII, so the quoting structure is preserved
-    /// and `EmailSyntaxValidator.mailbox(from:)` parses the output the same way it parses the
-    /// input. Non-ASCII content *between* the quotes, however, is normalized like the rest of
-    /// the address (e.g. `"ａｄｍｉｎ"@example.com` → `"admin"@example.com`). That is deliberate:
-    /// the primary motivation for NFKC here is spoofing / account de-duplication, and an
-    /// attacker who wraps a homograph in quotes would otherwise sidestep the check. RFC 6532
-    /// §3.1 recommends normalization without distinguishing quoted vs. unquoted local parts.
+    /// NFKC is applied to the whole string, including content *inside* quoted local parts.
+    /// Structurally this is safe: the RFC 5321 delimiters — `"` (U+0022), `\` (U+005C), and
+    /// `@` (U+0040) — are ASCII and NFKC is a no-op on ASCII, so the quoting structure is
+    /// preserved and `EmailSyntaxValidator.mailbox(from:)` parses the output the same way it
+    /// parses the input. Non-ASCII content *between* the quotes is normalized like the rest
+    /// of the address (e.g. `"ａｄｍｉｎ"@example.com` → `"admin"@example.com`) — deliberate,
+    /// because an attacker who wraps a homograph in quotes would otherwise sidestep the check.
     ///
-    /// If your application genuinely needs to preserve the exact scalar sequence inside a
-    /// quoted local part while still canonicalizing everything else, parse the address first
-    /// with `EmailSyntaxValidator.mailbox(from:)` and apply NFKC only to the components you
-    /// choose to canonicalize.
+    /// If your application needs to preserve the exact scalar sequence inside a quoted local
+    /// part while still canonicalizing everything else, parse the address first with
+    /// `EmailSyntaxValidator.mailbox(from:)` and apply NFKC only to the components you choose
+    /// to canonicalize.
+    ///
+    /// ## RFC 2047 encoded-word input
+    /// `=?charset?enc?payload?=` wrappers are pure ASCII, so NFKC is a no-op on them and any
+    /// homograph hidden inside the base64/quoted-printable payload survives unchanged. If your
+    /// pipeline accepts `.asciiWithUnicodeExtension` input and relies on NFKC for anti-spoofing,
+    /// decode the encoded word first and apply NFKC to the decoded UTF-8, not to the wrapper.
+    ///
+    /// ## IDNA2008 interaction (domain part)
+    /// IDNA2008 (RFC 5890–5895) is specified around NFC. NFKC may produce domain-label forms
+    /// IDNA2008 treats differently — notably `U+FF0E FULLWIDTH FULL STOP` maps to `.`, which
+    /// can create label boundaries that did not exist in the input. Downstream domain
+    /// validation should be prepared for this; the current `EmailSyntaxValidator` defers
+    /// domain validation to a pluggable validator (default: SwiftPublicSuffixList).
     ///
     /// - Parameter email: An email address string to normalize.
     /// - Returns: The NFKC-normalized form. Pure ASCII input is returned unchanged.
     public static func nfkc(_ email: String) -> String {
         email.precomposedStringWithCompatibilityMapping
+    }
+
+    /// Returns the input normalized to Unicode NFC (Normalization Form Canonical Composition).
+    ///
+    /// NFC collapses only *canonically-equivalent* scalar sequences — primarily combining
+    /// character sequences and their precomposed equivalents. It does **not** fold
+    /// compatibility variants (fullwidth, ligatures, superscripts, Roman numerals, etc.).
+    ///
+    /// Examples of what this changes:
+    /// - Decomposed `e` + U+0301 COMBINING ACUTE → precomposed `é`
+    /// - Decomposed `A` + U+030A COMBINING RING ABOVE → precomposed `Å`
+    ///
+    /// Examples of what this leaves **untouched** (unlike ``nfkc(_:)``):
+    /// - `＠` (U+FF20 FULLWIDTH COMMERCIAL AT) — unchanged
+    /// - `ﬁ` (U+FB01 LATIN SMALL LIGATURE FI) — unchanged
+    /// - `²` (U+00B2 SUPERSCRIPT TWO) — unchanged
+    ///
+    /// ## When to use this instead of NFKC
+    /// RFC 6532 §3.1 recommends **NFC** (SHOULD) for internationalized local-part comparison,
+    /// and specifically says NFKC SHOULD NOT be used because compatibility folding can destroy
+    /// information needed to correctly spell names. Use `nfc(_:)` when you need a
+    /// spec-compliant comparison form, or when you are normalizing an address you intend to
+    /// preserve for display, forwarding, or reply-to. Use ``nfkc(_:)`` when your goal is
+    /// anti-spoofing or account de-duplication at the cost of some round-tripping fidelity.
+    ///
+    /// All the non-normalization caveats from ``nfkc(_:)`` apply here too: no validation,
+    /// no case folding, and the whole string is treated as a single Unicode stream.
+    ///
+    /// - Parameter email: An email address string to normalize.
+    /// - Returns: The NFC-normalized form. Pure ASCII input is returned unchanged.
+    public static func nfc(_ email: String) -> String {
+        email.precomposedStringWithCanonicalMapping
     }
 }
