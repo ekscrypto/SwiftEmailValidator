@@ -17,28 +17,64 @@ import Foundation
 ///
 /// - Note: Zone identifiers (e.g., `%eth0`) are not allowed per RFC 5321 for email addresses.
 final public class IPAddressSyntaxValidator {
-    
-    
-    /// Validates that the candidate string either respects the IPv4 or IPv6 syntax
-    /// - Parameter candidate: String to validate
-    /// - Returns: true if syntax seems  valid, false otherwise
-    static func match(_ candidate: String) -> Bool {
-        matchIPv4(candidate) || matchIPv6(candidate)
+
+    /// Maximum valid IPv4 address length (e.g. `255.255.255.255` = 15 octets).
+    private static let maxIPv4Octets = 15
+    /// Maximum valid IPv6 address length, including IPv4-mapped form
+    /// (e.g. `ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255` = 45 octets).
+    private static let maxIPv6Octets = 45
+
+    // MARK: - Public API
+    //
+    // The public entry points apply an input-length guard before dispatching to
+    // the underlying regex. This prevents a caller from inducing a worst-case
+    // regex scan by passing a multi-megabyte string. `EmailSyntaxValidator` uses
+    // the unprefixed internal variants directly because it has already enforced
+    // an upper bound on the full address.
+
+    /// Validates that the candidate respects either the IPv4 or IPv6 syntax.
+    /// - Parameter candidate: String to validate.
+    /// - Returns: `true` if the input looks like a valid IPv4 or IPv6 literal.
+    public static func match(_ candidate: String) -> Bool {
+        guard candidate.utf8.count <= maxIPv6Octets else { return false }
+        return _match(candidate)
     }
-    
-    /// Validates that the candidate string respects the IPv4 syntax
-    /// - Parameter candidate: String to validate
-    /// - Returns: true if syntax eems valid, false otherwise
-    static func matchIPv4(_ candidate: String) -> Bool {
+
+    /// Validates that the candidate respects the IPv4 syntax.
+    /// - Parameter candidate: String to validate.
+    /// - Returns: `true` if the input looks like a valid IPv4 address.
+    public static func matchIPv4(_ candidate: String) -> Bool {
+        guard candidate.utf8.count <= maxIPv4Octets else { return false }
+        return _matchIPv4(candidate)
+    }
+
+    /// Validates that the candidate respects the IPv6 syntax per RFC 5321.
+    /// - Parameter candidate: String to validate.
+    /// - Returns: `true` if the input looks like a valid IPv6 address.
+    /// - Note: Zone identifiers (e.g. `%eth0`) are not allowed per RFC 5321.
+    public static func matchIPv6(_ candidate: String) -> Bool {
+        guard candidate.utf8.count <= maxIPv6Octets else { return false }
+        return _matchIPv6(candidate)
+    }
+
+    // MARK: - Internal API
+    //
+    // These assume the caller has already bounded the input length. They skip
+    // the `utf8.count` guard that the public wrappers enforce. Only call them
+    // from inside this module, and only when you have already constrained the
+    // input (e.g. `EmailSyntaxValidator` caps the whole address at 254 octets
+    // and the host at 253 octets before these are invoked).
+
+    static func _match(_ candidate: String) -> Bool {
+        _matchIPv4(candidate) || _matchIPv6(candidate)
+    }
+
+    static func _matchIPv4(_ candidate: String) -> Bool {
         let v4regex = #"^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$"#
         return candidate.range(of: v4regex, options: .regularExpression) != nil
     }
 
-    /// Validates that the candidate string respects the IPv6 syntax per RFC 5321
-    /// - Parameter candidate: String to validate
-    /// - Returns: true if syntax seems valid, false otherwise
-    /// - Note: Zone identifiers (e.g., %eth0) are NOT allowed per RFC 5321 for email addresses
-    static func matchIPv6(_ candidate: String) -> Bool {
+    static func _matchIPv6(_ candidate: String) -> Bool {
         // Based on: https://gist.github.com/syzdek/6086792
         // Modified: Removed zone identifier pattern (fe80:...%...) as zone IDs are not valid
         // in email address literals per RFC 5321 Section 4.1.3

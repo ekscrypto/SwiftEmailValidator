@@ -161,4 +161,41 @@ final class IPAddressValidatorTests: XCTestCase {
                            "'\(addr)' contains two '::' groups and must be rejected per RFC 4291")
         }
     }
+
+    // MARK: - Public-API length cap (DoS hardening)
+
+    func testIPv4PublicWrapperRejectsOverlongInput() {
+        // IPv4 addresses are at most 15 octets ("255.255.255.255"). The public
+        // wrapper must reject anything longer up-front without invoking the
+        // regex — guards against a caller passing a multi-megabyte string.
+        let overlong = String(repeating: "1", count: 16)              // 16 octets
+        let farOverlong = String(repeating: "1.2.3.4,", count: 1024)  // 8 KiB
+        XCTAssertFalse(IPAddressSyntaxValidator.matchIPv4(overlong))
+        XCTAssertFalse(IPAddressSyntaxValidator.matchIPv4(farOverlong))
+    }
+
+    func testIPv4PublicWrapperAcceptsBoundary() {
+        XCTAssertTrue(IPAddressSyntaxValidator.matchIPv4("255.255.255.255"),   // exactly 15 octets
+                      "15-octet IPv4 must be accepted by the public wrapper")
+    }
+
+    func testIPv6PublicWrapperRejectsOverlongInput() {
+        // IPv6 max = 45 octets (`ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255`).
+        let overlong = String(repeating: "f", count: 46)
+        let farOverlong = String(repeating: "::1,", count: 1024)
+        XCTAssertFalse(IPAddressSyntaxValidator.matchIPv6(overlong))
+        XCTAssertFalse(IPAddressSyntaxValidator.matchIPv6(farOverlong))
+    }
+
+    func testIPv6PublicWrapperAcceptsLongestSupportedForm() {
+        // 39-octet fully-expanded form is the longest address the current
+        // regex accepts; the 45-octet cap is deliberately above it to leave
+        // room for future RFC 4291 form-2 support without bumping the guard.
+        XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"))
+    }
+
+    func testMatchPublicWrapperRejectsOverlongInput() {
+        let overlong = String(repeating: "1", count: 46)
+        XCTAssertFalse(IPAddressSyntaxValidator.match(overlong))
+    }
 }

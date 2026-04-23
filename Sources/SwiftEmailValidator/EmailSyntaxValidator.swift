@@ -290,11 +290,11 @@ public final class EmailSyntaxValidator {
         let addressLiteralCandidate = String(candidate.dropFirst().dropLast()) // get rid of [ and ]
         let ipv6Tag = "IPv6" // ref: https://www.iana.org/assignments/address-literal-tags/address-literal-tags.xhtml
         
-        if addressLiteralCandidate.hasPrefix("\(ipv6Tag):"), IPAddressSyntaxValidator.matchIPv6(String(addressLiteralCandidate.dropFirst(ipv6Tag.count + 1))) {
+        if addressLiteralCandidate.hasPrefix("\(ipv6Tag):"), IPAddressSyntaxValidator._matchIPv6(String(addressLiteralCandidate.dropFirst(ipv6Tag.count + 1))) {
             return .addressLiteral(addressLiteralCandidate)
         }
-        
-        guard IPAddressSyntaxValidator.matchIPv4(addressLiteralCandidate) else {
+
+        guard IPAddressSyntaxValidator._matchIPv4(addressLiteralCandidate) else {
             return nil
         }
         return .addressLiteral(addressLiteralCandidate)
