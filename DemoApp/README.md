@@ -1,6 +1,6 @@
 # Email Validator Demo App
 
-A SwiftUI iOS app that compares email validation methods by running ~150 test cases against native iOS validators and the SwiftEmailValidator library.
+A SwiftUI iOS app that compares email validation methods by running ~200 test cases against native iOS validators and the SwiftEmailValidator library.
 
 ## Validation Methods Compared
 
@@ -16,7 +16,7 @@ A SwiftUI iOS app that compares email validation methods by running ~150 test ca
 
 ## Test Categories
 
-The app tests emails across 23 categories:
+The app tests emails across 30 categories:
 
 **Invalid Email Types:**
 - Missing @ symbol
@@ -33,6 +33,15 @@ The app tests emails across 23 categories:
 - Control characters
 - Bidirectional override characters
 - Invalid RFC2047 encoding
+
+**Security hardening (added in 1.2.x):**
+- Unicode noncharacters (UAX §23.7: U+FDD0-FDEF, U+nFFFE/U+nFFFF)
+- Zero-width / invisible chars (U+200B-200D, U+FEFF, U+FE0F, …)
+- Unicode space spoofing (U+00A0, U+2003, U+3000, … visually identical to space)
+- Variation Selectors Supplement (U+E0100-E01EF)
+- Tag characters (U+E0000-E007F)
+- Supplementary-plane attacks (PUA-A/B, unassigned planes 4-13)
+- RFC 2047 control injection (DEL + C1 controls via Q-decode)
 
 **Valid Email Types:**
 - Standard emails

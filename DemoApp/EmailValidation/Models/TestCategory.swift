@@ -19,6 +19,13 @@ enum TestCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
     case controlCharacters = "Control characters"
     case bidirectionalOverride = "Bidirectional override"
     case invalidRFC2047 = "Invalid RFC2047"
+    case unicodeNoncharacters = "Unicode noncharacters"
+    case zeroWidthInvisible = "Zero-width / invisible chars"
+    case unicodeSpaceSpoofing = "Unicode space spoofing"
+    case variationSelectors = "Variation selectors (supp.)"
+    case tagCharacters = "Tag characters"
+    case supplementaryPlaneAttacks = "Supplementary-plane attacks"
+    case rfc2047ControlInjection = "RFC2047 control injection"
 
     // Valid categories
     case validStandard = "Valid standard"

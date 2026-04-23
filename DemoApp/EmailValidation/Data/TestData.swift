@@ -27,7 +27,14 @@ struct TestData {
         unicodeInAsciiModeCases +
         controlCharacterCases +
         bidirectionalOverrideCases +
-        invalidRFC2047Cases
+        invalidRFC2047Cases +
+        unicodeNoncharactersCases +
+        zeroWidthInvisibleCases +
+        unicodeSpaceSpoofingCases +
+        variationSelectorsCases +
+        tagCharactersCases +
+        supplementaryPlaneAttacksCases +
+        rfc2047ControlInjectionCases
 
     // MARK: - Valid Standard Email
 
@@ -125,7 +132,6 @@ struct TestData {
         EmailTestCase(email: "user😀@site.com", category: .validUnicode, expectedValid: true, description: "Emoji in local part"),
         EmailTestCase(email: "cafe\u{0301}@site.com", category: .validUnicode, expectedValid: true, description: "Combining mark (café)"),
         EmailTestCase(email: "\u{1D400}@site.com", category: .validUnicode, expectedValid: true, description: "Mathematical bold A (beyond BMP)"),
-        EmailTestCase(email: String(repeating: "\u{1D11E}", count: 30) + "@site.com", category: .validUnicode, expectedValid: true, description: "30 musical symbols (4-byte chars)"),
         EmailTestCase(email: "한中あαбעعहবதతకಕമෆไᎠ@site.com", category: .validUnicode, expectedValid: true, description: "Diverse Unicode scripts"),
     ]
 
@@ -157,6 +163,7 @@ struct TestData {
     static let validBoundaryCases: [EmailTestCase] = [
         EmailTestCase(email: String(repeating: "x", count: 64) + "@site.com", category: .validBoundary, expectedValid: true, description: "Exactly 64-char local part (max)"),
         EmailTestCase(email: String(repeating: "x", count: 63) + "@site.com", category: .validBoundary, expectedValid: true, description: "63-char local part"),
+        EmailTestCase(email: String(repeating: "\u{1D11E}", count: 16) + "@site.com", category: .validBoundary, expectedValid: true, description: "16 musical symbols (4-byte) = exactly 64 octets"),
     ]
 
     // MARK: - Missing @ Symbol
@@ -221,6 +228,7 @@ struct TestData {
         EmailTestCase(email: String(repeating: "x", count: 65) + "@site.com", category: .localPartTooLong, expectedValid: false, description: "65-char local part"),
         EmailTestCase(email: String(repeating: "x", count: 1000) + "@site.com", category: .localPartTooLong, expectedValid: false, description: "1000-char local part"),
         EmailTestCase(email: String(repeating: "한", count: 65) + "@site.com", category: .localPartTooLong, expectedValid: false, description: "65 Unicode chars"),
+        EmailTestCase(email: String(repeating: "\u{1D11E}", count: 30) + "@site.com", category: .localPartTooLong, expectedValid: false, description: "30 musical symbols (4-byte) = 120 octets > 64-octet RFC 5321 limit"),
     ]
 
     // MARK: - Invalid IPv4 Literals
@@ -247,6 +255,8 @@ struct TestData {
         EmailTestCase(email: "user@[IPv6::1:2:3:4:5:6:7:8]", category: .invalidIPv6Literal, expectedValid: false, description: "Leading colon"),
         EmailTestCase(email: "user@[IPv6:1:2:3:4:5:6:7:8:]", category: .invalidIPv6Literal, expectedValid: false, description: "Trailing colon"),
         EmailTestCase(email: "user@[IPv6:1:2:3:4:5:6:7:88888]", category: .invalidIPv6Literal, expectedValid: false, description: "Segment too long"),
+        EmailTestCase(email: "user@[IPv6:]", category: .invalidIPv6Literal, expectedValid: false, description: "Empty IPv6 literal"),
+        EmailTestCase(email: "user@[IPvX:1.2.3.4]", category: .invalidIPv6Literal, expectedValid: false, description: "Non-standard address-literal tag"),
     ]
 
     // MARK: - IPv6 Zone Identifiers
@@ -296,5 +306,83 @@ struct TestData {
         EmailTestCase(email: "=?iso-8859-1?q?h=E9ro@cinema.ca?", category: .invalidRFC2047, expectedValid: false, description: "Missing closing ="),
         EmailTestCase(email: "=?utf-8?B?7?=", category: .invalidRFC2047, expectedValid: false, description: "Invalid base64"),
         EmailTestCase(email: "=?iso-8859-1?q?1234567890123456789012345678901234567890123456789012345678901234567890@toolong.net?=", category: .invalidRFC2047, expectedValid: false, description: "Encoded value too long"),
+    ]
+
+    // MARK: - Unicode Noncharacters (UAX §23.7)
+    // Swift's `\u{...}` string literal rejects noncharacters at compile time, so these
+    // strings are built programmatically via Unicode.Scalar(value).
+
+    private static func emailWithScalar(_ value: UInt32, prefix: String = "test", suffix: String = "@site.com") -> String {
+        prefix + String(Unicode.Scalar(value)!) + suffix
+    }
+
+    static let unicodeNoncharactersCases: [EmailTestCase] = [
+        EmailTestCase(email: emailWithScalar(0xFDD0), category: .unicodeNoncharacters, expectedValid: false, description: "U+FDD0 (BMP noncharacter)"),
+        EmailTestCase(email: emailWithScalar(0xFDEF), category: .unicodeNoncharacters, expectedValid: false, description: "U+FDEF (last of FDD0–FDEF block)"),
+        EmailTestCase(email: emailWithScalar(0xFFFE), category: .unicodeNoncharacters, expectedValid: false, description: "U+FFFE (anti-BOM, BMP)"),
+        EmailTestCase(email: emailWithScalar(0xFFFF), category: .unicodeNoncharacters, expectedValid: false, description: "U+FFFF (BMP noncharacter)"),
+        EmailTestCase(email: emailWithScalar(0x1FFFE), category: .unicodeNoncharacters, expectedValid: false, description: "U+1FFFE (SMP noncharacter)"),
+        EmailTestCase(email: emailWithScalar(0x2FFFF), category: .unicodeNoncharacters, expectedValid: false, description: "U+2FFFF (SIP noncharacter)"),
+        EmailTestCase(email: emailWithScalar(0x3FFFE), category: .unicodeNoncharacters, expectedValid: false, description: "U+3FFFE (TIP noncharacter)"),
+    ]
+
+    // MARK: - Zero-Width / Invisible Characters
+
+    static let zeroWidthInvisibleCases: [EmailTestCase] = [
+        EmailTestCase(email: "te\u{200B}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+200B ZERO WIDTH SPACE"),
+        EmailTestCase(email: "te\u{200C}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+200C ZERO WIDTH NON-JOINER"),
+        EmailTestCase(email: "te\u{200D}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+200D ZERO WIDTH JOINER"),
+        EmailTestCase(email: "te\u{2060}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+2060 WORD JOINER"),
+        EmailTestCase(email: "te\u{2065}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+2065 (reserved, format-class)"),
+        EmailTestCase(email: "te\u{FEFF}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+FEFF ZERO WIDTH NO-BREAK SPACE / BOM"),
+        EmailTestCase(email: "te\u{FE0F}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+FE0F VARIATION SELECTOR-16"),
+        EmailTestCase(email: "te\u{00AD}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+00AD SOFT HYPHEN"),
+    ]
+
+    // MARK: - Unicode Space Spoofing (visually identical to ASCII space)
+
+    static let unicodeSpaceSpoofingCases: [EmailTestCase] = [
+        EmailTestCase(email: "user\u{00A0}name@site.com", category: .unicodeSpaceSpoofing, expectedValid: false, description: "U+00A0 NO-BREAK SPACE"),
+        EmailTestCase(email: "user\u{1680}name@site.com", category: .unicodeSpaceSpoofing, expectedValid: false, description: "U+1680 OGHAM SPACE MARK"),
+        EmailTestCase(email: "user\u{2003}name@site.com", category: .unicodeSpaceSpoofing, expectedValid: false, description: "U+2003 EM SPACE"),
+        EmailTestCase(email: "user\u{2009}name@site.com", category: .unicodeSpaceSpoofing, expectedValid: false, description: "U+2009 THIN SPACE"),
+        EmailTestCase(email: "user\u{202F}name@site.com", category: .unicodeSpaceSpoofing, expectedValid: false, description: "U+202F NARROW NO-BREAK SPACE"),
+        EmailTestCase(email: "user\u{205F}name@site.com", category: .unicodeSpaceSpoofing, expectedValid: false, description: "U+205F MEDIUM MATHEMATICAL SPACE"),
+        EmailTestCase(email: "user\u{3000}name@site.com", category: .unicodeSpaceSpoofing, expectedValid: false, description: "U+3000 IDEOGRAPHIC SPACE"),
+    ]
+
+    // MARK: - Variation Selectors Supplement (VS-17 .. VS-256)
+
+    static let variationSelectorsCases: [EmailTestCase] = [
+        EmailTestCase(email: "test\u{E0100}@site.com", category: .variationSelectors, expectedValid: false, description: "U+E0100 VARIATION SELECTOR-17"),
+        EmailTestCase(email: "test\u{E0101}@site.com", category: .variationSelectors, expectedValid: false, description: "U+E0101 VARIATION SELECTOR-18"),
+        EmailTestCase(email: "test\u{E01EF}@site.com", category: .variationSelectors, expectedValid: false, description: "U+E01EF VARIATION SELECTOR-256"),
+    ]
+
+    // MARK: - Tag Characters (U+E0000–U+E007F)
+
+    static let tagCharactersCases: [EmailTestCase] = [
+        EmailTestCase(email: "test\u{E0001}@site.com", category: .tagCharacters, expectedValid: false, description: "U+E0001 LANGUAGE TAG"),
+        EmailTestCase(email: "test\u{E0041}@site.com", category: .tagCharacters, expectedValid: false, description: "U+E0041 TAG LATIN CAPITAL A"),
+        EmailTestCase(email: "test\u{E007F}@site.com", category: .tagCharacters, expectedValid: false, description: "U+E007F CANCEL TAG"),
+    ]
+
+    // MARK: - Supplementary-Plane Attacks (SSP / PUA / unassigned planes)
+
+    static let supplementaryPlaneAttacksCases: [EmailTestCase] = [
+        EmailTestCase(email: "test\u{F0000}@site.com", category: .supplementaryPlaneAttacks, expectedValid: false, description: "U+F0000 (Supplementary PUA-A start)"),
+        EmailTestCase(email: "test\u{100000}@site.com", category: .supplementaryPlaneAttacks, expectedValid: false, description: "U+100000 (Supplementary PUA-B start)"),
+        EmailTestCase(email: "test\u{10FFFD}@site.com", category: .supplementaryPlaneAttacks, expectedValid: false, description: "U+10FFFD (Supplementary PUA-B end)"),
+        EmailTestCase(email: "test\u{40000}@site.com", category: .supplementaryPlaneAttacks, expectedValid: false, description: "U+40000 (Plane 4, unassigned)"),
+        EmailTestCase(email: "test\u{DFFFF}@site.com", category: .supplementaryPlaneAttacks, expectedValid: false, description: "U+DFFFF (Plane 13, unassigned)"),
+    ]
+
+    // MARK: - RFC 2047 Control Injection (DEL + C1 via Q-decode)
+
+    static let rfc2047ControlInjectionCases: [EmailTestCase] = [
+        EmailTestCase(email: #"=?iso-8859-1?q?"test=7F"@site.com?="#, category: .rfc2047ControlInjection, expectedValid: false, description: "Q-encoded DEL (0x7F) inside quoted local part"),
+        EmailTestCase(email: #"=?iso-8859-1?q?"test=80"@site.com?="#, category: .rfc2047ControlInjection, expectedValid: false, description: "Q-encoded C1 control 0x80"),
+        EmailTestCase(email: #"=?iso-8859-1?q?"test=90"@site.com?="#, category: .rfc2047ControlInjection, expectedValid: false, description: "Q-encoded C1 control 0x90"),
+        EmailTestCase(email: #"=?iso-8859-1?q?"test=9F"@site.com?="#, category: .rfc2047ControlInjection, expectedValid: false, description: "Q-encoded C1 control 0x9F (last)"),
     ]
 }
