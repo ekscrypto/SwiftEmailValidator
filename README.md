@@ -377,6 +377,62 @@ Recorded with the specific `fatalError` root cause, keyed by exact input:
 SwiftEmailValidator, bdolewski, and jwelton-equivalent (NSDataDetector) did
 not crash on any of the 195 inputs.
 
+### Reverse check — running competitor test corpora through SwiftEmailValidator
+
+Beyond our own 195-case corpus, the harness also runs each competitor's
+**own test assertions** through our library to surface places where we
+disagree with what they themselves claim is valid or invalid. Extract the
+test corpora from each competitor's repo (evanrobertson: 96 cases,
+bdolewski: 18, jwelton: 6, igorrendulic: 24 — inner mailbox addresses only,
+since their suite parses `Name <mailbox>` envelopes we do not). Run them
+through our three compatibility modes with a permissive `domainValidator`,
+so PSL-based policy doesn't mask pure syntax disagreements. Reproduce with:
+
+```bash
+swift run -c release EmailBench --reverse
+```
+
+| Source | Total | Agreed | Disagreed |
+|---|---:|---:|---:|
+| evanrobertson | 96 | 92 | 4 |
+| bdolewski | 18 | 18 | 0 |
+| jwelton | 6 | 5 | 1 |
+| igorrendulic | 24 | 24 | 0 |
+| **Total** | **144** | **139** | **5** |
+
+#### The 5 disagreements
+
+| Source | Input | Competitor | Ours syntax (A / A+U / U) | Default PSL (U) |
+|---|---|---|---|---|
+| evanrobertson | `valid.ipv6v4.addr@[IPv6:aaaa:aaaa:aaaa:aaaa:aaaa:aaaa:127.0.0.1]` | valid | false / false / false | false |
+| evanrobertson | `another-invalid-ip@127.0.0.256` | invalid | true / true / true | **false** |
+| evanrobertson | `invalid-ip@127.0.0.1.26` | invalid | true / true / true | **false** |
+| evanrobertson | `unbracketed-IP@127.0.0.1` | invalid | true / true / true | **false** |
+| jwelton | `test@example` | invalid | true / true / true | **false** |
+
+* `Default PSL (U)` is the shipped behaviour: our `.unicode` mode with the
+  default `domainValidator` = `PublicSuffixList.isUnrestricted`.
+* When the `Default PSL` column matches the competitor's expectation, the
+  syntax-layer permissiveness is caught by the policy layer and the shipped
+  library agrees with the competitor.
+
+#### Assessment
+
+* **1 genuine gap.** Our IPv6 regex does not currently accept RFC 4291 §2.2
+  format 2 (six hex groups followed by a trailing IPv4 suffix, e.g.
+  `aaaa:…:127.0.0.1`). The maximum length allowed by the address literal
+  falls within our `IPAddressSyntaxValidator` length cap (45 octets), so
+  adding the form only requires extending the regex. This is the single
+  address form our library rejects where the RFC considers it valid.
+* **4 policy-not-syntax differences** (`127.0.0.1.26`, `127.0.0.256`,
+  `127.0.0.1`, `example` as domains). Purely numeric labels and single-label
+  hostnames are syntactically valid per RFC 1035 / 5322, so our syntax
+  layer accepts them. evanrobertson and jwelton fold the rejection into
+  their syntax check. Our default `domainValidator` (`PublicSuffixList`)
+  catches all four as policy. Applications that want them to validate can
+  already pass `domainValidator: { _ in true }`; applications that want the
+  competitors' behaviour get it with the default.
+
 ### Caveat
 
 These numbers reflect the 195 inputs in the SwiftEmailValidator corpus and

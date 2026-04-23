@@ -1,4 +1,5 @@
 import Foundation
+import SwiftEmailValidator
 
 // MARK: - Mode parsing
 
@@ -13,6 +14,120 @@ if args.contains("--worker") {
     let key = argValue("--worker") ?? ""
     let start = Int(argValue("--start") ?? "0") ?? 0
     runWorker(adapterKey: key, startIndex: start)
+}
+
+if args.contains("--reverse") {
+    // Run each harvested competitor test case through our three compatibility
+    // modes. A competitor case with `.valid` expectation is counted as passing
+    // iff at least one of our modes agrees (since a case like an emoji address
+    // is only "valid" in .unicode). `.validOnlyInUnicodeMode` is counted as
+    // passing iff .unicode agrees. We use a permissive `domainValidator` so
+    // PSL-based domain policy (our default) doesn't mask pure-syntax
+    // disagreements — e.g. evanrobertson's `admin@mailserver1` is a syntax-
+    // valid TLD-only domain that our PSL default rejects as policy, not syntax.
+
+    func ours(_ email: String, mode: EmailSyntaxValidator.Compatibility) -> Bool {
+        EmailSyntaxValidator.correctlyFormatted(
+            email,
+            compatibility: mode,
+            allowAddressLiteral: true,
+            domainValidator: { _ in true }
+        )
+    }
+
+    func oursDefault(_ email: String, mode: EmailSyntaxValidator.Compatibility) -> Bool {
+        // Default domainValidator = PSL-based. Shows the shipped behaviour
+        // for each competitor test case (relevant when a syntax-level lenient
+        // accept is expected to be caught by the default policy layer).
+        EmailSyntaxValidator.correctlyFormatted(email, compatibility: mode, allowAddressLiteral: true)
+    }
+
+    struct Disagreement {
+        let source: String
+        let email: String
+        let competitorExpected: String
+        let ourAscii: Bool
+        let ourAsciiUnicode: Bool
+        let ourUnicode: Bool
+        let defaultPSLUnicode: Bool
+    }
+
+    let cases = ReverseCorpus.all
+    var disagreements: [Disagreement] = []
+    var passCount = [String: Int]()
+    var totalCount = [String: Int]()
+
+    for c in cases {
+        totalCount[c.source, default: 0] += 1
+        let a = ours(c.email, mode: .ascii)
+        let au = ours(c.email, mode: .asciiWithUnicodeExtension)
+        let u = ours(c.email, mode: .unicode)
+        let agrees: Bool
+        switch c.expectation {
+        case .valid:
+            // Any mode accepting is sufficient agreement.
+            agrees = a || au || u
+        case .invalid:
+            // Every mode must reject to agree.
+            agrees = !a && !au && !u
+        case .validOnlyInUnicodeMode:
+            agrees = u && !a && !au
+        }
+        if agrees {
+            passCount[c.source, default: 0] += 1
+        } else {
+            let expStr: String = {
+                switch c.expectation {
+                case .valid: return "valid"
+                case .invalid: return "invalid"
+                case .validOnlyInUnicodeMode: return "valid (unicode only)"
+                }
+            }()
+            let defaultPSL = oursDefault(c.email, mode: .unicode)
+            disagreements.append(Disagreement(
+                source: c.source, email: c.email, competitorExpected: expStr,
+                ourAscii: a, ourAsciiUnicode: au, ourUnicode: u,
+                defaultPSLUnicode: defaultPSL
+            ))
+        }
+    }
+
+    print("# Reverse check — competitor test cases run through SwiftEmailValidator\n")
+    print("Using permissive `domainValidator: { _ in true }` so PSL-based domain policy")
+    print("(our default rejects single-label domains, public suffixes) does not count as")
+    print("a syntax disagreement. Input-length caps and character-set rules still apply.\n")
+    print("| Source | Total | Agreed | Disagreed |")
+    print("|---|---:|---:|---:|")
+    let sources = ["evanrobertson", "bdolewski", "jwelton", "igorrendulic"]
+    for s in sources {
+        let total = totalCount[s] ?? 0
+        let passed = passCount[s] ?? 0
+        print("| \(s) | \(total) | \(passed) | \(total - passed) |")
+    }
+    let grandTotal = cases.count
+    let grandPassed = passCount.values.reduce(0, +)
+    print("| **Total** | \(grandTotal) | \(grandPassed) | \(grandTotal - grandPassed) |")
+
+    if !disagreements.isEmpty {
+        print("\n## Disagreements\n")
+        print("Rows where our library's verdict differs from the competitor's test assertion.")
+        print("`A`=`.ascii`, `A+U`=`.asciiWithUnicodeExtension`, `U`=`.unicode`.\n")
+        print("| Source | Input | Competitor | Ours syntax (A / A+U / U) | Default PSL (U) |")
+        print("|---|---|---|---|---|")
+        for d in disagreements {
+            let display = d.email.unicodeScalars.map { s -> String in
+                (s.value < 0x20 || (s.value >= 0x7F && s.value <= 0x9F))
+                    ? String(format: "\\u{%04X}", s.value) : String(s)
+            }.joined()
+            let ours = "\(d.ourAscii) / \(d.ourAsciiUnicode) / \(d.ourUnicode)"
+            print("| \(d.source) | `\(display)` | \(d.competitorExpected) | \(ours) | \(d.defaultPSLUnicode) |")
+        }
+        print("\n`Default PSL (U)` column shows the shipped behaviour (our `.unicode` mode with")
+        print("the default `domainValidator` = `PublicSuffixList.isUnrestricted`). When it matches")
+        print("the competitor's expectation, the syntax-layer disagreement is caught by our default")
+        print("domain-policy layer — so the shipped library agrees with the competitor in practice.")
+    }
+    exit(0)
 }
 
 if args.contains("--rfc5322-scope") {
