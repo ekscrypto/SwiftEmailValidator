@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-04-23
+
+### Fixed
+
+- **IPv6 literal regex now accepts RFC 4291 §2.2 format 2** (six uncompressed
+  hex groups followed by a trailing IPv4-in-dotted-decimal, e.g.
+  `aaaa:aaaa:aaaa:aaaa:aaaa:aaaa:127.0.0.1`). The upstream regex this
+  validator was derived from only recognised the compressed / IPv4-mapped
+  forms (`::ffff:x.x.x.x`, `1::5:x.x.x.x`). Found by running each
+  competitor library's own test corpus through SwiftEmailValidator; this
+  was the single genuine gap surfaced by that reverse check (the other
+  four disagreements were syntax-vs-policy differences caught by our
+  default `domainValidator`).
+- Address `valid.ipv6v4.addr@[IPv6:aaaa:aaaa:aaaa:aaaa:aaaa:aaaa:127.0.0.1]`
+  now validates as expected. Max IPv6 literal length remains 45 octets —
+  already within the `IPAddressSyntaxValidator` public-API length cap, no
+  guard changes needed.
+- Added `testIPv6Format2UncompressedWithEmbeddedIPv4` and
+  `testIPv6Format2RejectsWrongGroupCount` regression tests; updated the
+  boundary-form test. Test count is now 164.
+
 ## [1.4.0] - 2026-04-23
 
 ### Added

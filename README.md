@@ -281,7 +281,7 @@ pull the competitor dependencies.
 
 | Library | Tested revision | RFC coverage | PSL integration |
 |---|---|---|---|
-| [SwiftEmailValidator](https://github.com/ekscrypto/SwiftEmailValidator) (this package) | 1.4.0 | RFC 822 / 2047 / 5321 / 5322 / 6531 | ✅ (pluggable via `domainValidator:`) |
+| [SwiftEmailValidator](https://github.com/ekscrypto/SwiftEmailValidator) (this package) | 1.4.1 | RFC 822 / 2047 / 5321 / 5322 / 6531 | ✅ (pluggable via `domainValidator:`) |
 | [evanrobertson/EmailValidator](https://github.com/evanrobertson/EmailValidator) | `master` @ `ff80978` (untagged) | RFC 5322; optional i18n (RFC 653x) via `allowInternational:` | — |
 | [igorrendulic/MimeEmailParser](https://github.com/igorrendulic/MimeEmailParser) | 1.0.5 | RFC 5322 + RFC 2047 / 6532 | — |
 | [bdolewski/SwiftEmailValidator](https://github.com/bdolewski/SwiftEmailValidator) | `master` @ `85a0fc1` (regex vendored: the library's `EmailValidator` symbol has default/`internal` access and cannot be imported) | RFC 5322 (single regex) | — |
@@ -394,17 +394,16 @@ swift run -c release EmailBench --reverse
 
 | Source | Total | Agreed | Disagreed |
 |---|---:|---:|---:|
-| evanrobertson | 96 | 92 | 4 |
+| evanrobertson | 96 | 93 | 3 |
 | bdolewski | 18 | 18 | 0 |
 | jwelton | 6 | 5 | 1 |
 | igorrendulic | 24 | 24 | 0 |
-| **Total** | **144** | **139** | **5** |
+| **Total** | **144** | **140** | **4** |
 
-#### The 5 disagreements
+#### The 4 disagreements
 
 | Source | Input | Competitor | Ours syntax (A / A+U / U) | Default PSL (U) |
 |---|---|---|---|---|
-| evanrobertson | `valid.ipv6v4.addr@[IPv6:aaaa:aaaa:aaaa:aaaa:aaaa:aaaa:127.0.0.1]` | valid | false / false / false | false |
 | evanrobertson | `another-invalid-ip@127.0.0.256` | invalid | true / true / true | **false** |
 | evanrobertson | `invalid-ip@127.0.0.1.26` | invalid | true / true / true | **false** |
 | evanrobertson | `unbracketed-IP@127.0.0.1` | invalid | true / true / true | **false** |
@@ -418,12 +417,10 @@ swift run -c release EmailBench --reverse
 
 #### Assessment
 
-* **1 genuine gap.** Our IPv6 regex does not currently accept RFC 4291 §2.2
-  format 2 (six hex groups followed by a trailing IPv4 suffix, e.g.
-  `aaaa:…:127.0.0.1`). The maximum length allowed by the address literal
-  falls within our `IPAddressSyntaxValidator` length cap (45 octets), so
-  adding the form only requires extending the regex. This is the single
-  address form our library rejects where the RFC considers it valid.
+* **No genuine syntax gaps remaining.** The RFC 4291 §2.2 format-2 IPv6
+  gap surfaced by this check in 1.4.0 (six uncompressed hex groups
+  followed by a trailing IPv4 suffix, e.g. `aaaa:…:127.0.0.1`) was
+  closed in 1.4.1.
 * **4 policy-not-syntax differences** (`127.0.0.1.26`, `127.0.0.256`,
   `127.0.0.1`, `example` as domains). Purely numeric labels and single-label
   hostnames are syntactically valid per RFC 1035 / 5322, so our syntax

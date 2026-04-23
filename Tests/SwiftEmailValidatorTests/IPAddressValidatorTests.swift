@@ -147,6 +147,40 @@ final class IPAddressValidatorTests: XCTestCase {
         XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6("1::2"),   "1::2 compressed form must be valid")
     }
 
+    func testIPv6Format2UncompressedWithEmbeddedIPv4() {
+        // RFC 4291 §2.2 format 2: six uncompressed hex groups followed by a
+        // trailing IPv4-in-dotted-decimal (e.g. `aaaa:…:aaaa:127.0.0.1`).
+        // The upstream regex this validator is derived from only recognised
+        // the compressed / IPv4-mapped forms; this exercises the added path.
+        let valid: [String] = [
+            "aaaa:aaaa:aaaa:aaaa:aaaa:aaaa:127.0.0.1",
+            "0:0:0:0:0:0:1.2.3.4",              // canonical all-zeros + IPv4
+            "0:0:0:0:0:ffff:192.168.1.1",       // IPv4-mapped, fully expanded
+            "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255", // length boundary (45 octets)
+            "1:2:3:4:5:6:1.2.3.4",
+        ]
+        for addr in valid {
+            XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6(addr),
+                          "\(addr) must be accepted (RFC 4291 §2.2 format 2)")
+        }
+    }
+
+    func testIPv6Format2RejectsWrongGroupCount() {
+        // Format 2 requires exactly six hex groups before the IPv4 suffix.
+        // Five or seven hex groups must not match the new alternative.
+        let invalid: [String] = [
+            "1:2:3:4:5:1.2.3.4",            // only 5 hex groups
+            "1:2:3:4:5:6:7:1.2.3.4",        // 7 hex groups — over by one
+            "1:2:3:4:5:6:1.2.3",            // only 3 IPv4 octets
+            "1:2:3:4:5:6:1.2.3.4.5",        // 5 IPv4 octets
+            "1:2:3:4:5:6:256.1.2.3",        // IPv4 octet out of range
+        ]
+        for addr in invalid {
+            XCTAssertFalse(IPAddressSyntaxValidator.matchIPv6(addr),
+                           "\(addr) must be rejected (not a valid RFC 4291 §2.2 format 2)")
+        }
+    }
+
     func testIPv6TwoDoubleColonsRejected() {
         // RFC 4291 §2.2 rule 3: at most one "::" may appear in an address.
         // Two "::" sequences make the address ambiguous and must be rejected.
@@ -188,9 +222,11 @@ final class IPAddressValidatorTests: XCTestCase {
     }
 
     func testIPv6PublicWrapperAcceptsLongestSupportedForm() {
-        // 39-octet fully-expanded form is the longest address the current
-        // regex accepts; the 45-octet cap is deliberately above it to leave
-        // room for future RFC 4291 form-2 support without bumping the guard.
+        // Longest legal IPv6 literal per RFC 4291 §2.2 is 45 octets in
+        // format 2 (six hex groups + four IPv4 octets, e.g. the boundary
+        // string below). The public wrapper must accept the full length.
+        XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255"))
+        // The 8-group hex-only form (39 octets) also accepted — second-longest.
         XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"))
     }
 
