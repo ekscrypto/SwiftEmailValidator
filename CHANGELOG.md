@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-04-23
+
+### Added
+
+- **`IPAddressSyntaxValidator` public length-capped wrappers.** The public
+  `match(_:)`, `matchIPv4(_:)`, and `matchIPv6(_:)` methods now apply a
+  `utf8.count` guard before dispatching to the regex engine: 15 octets for
+  IPv4 (max `255.255.255.255`), 45 octets for IPv6 (max
+  `ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255`). Prior to this release
+  these methods had no input-length bound, so a caller passing a
+  multi-megabyte string would spend O(n) inside `NSRegularExpression`
+  before the trailing `$` anchor failed — a potential denial-of-service
+  vector for code paths that expose the validator to untrusted input
+  directly (bypassing `EmailSyntaxValidator`, which already caps the
+  whole address at 254 UTF-8 octets).
+- **Internal raw matchers** `_match(_:)`, `_matchIPv4(_:)`, and
+  `_matchIPv6(_:)` retain the pre-1.4.0 behaviour (no length guard) and
+  are used by `EmailSyntaxValidator.extractHostLiteral` directly — the
+  upstream address cap already bounds the input, so the hot path avoids
+  a redundant second `utf8.count` check.
+- **`Benchmarks/` SPM package.** A new standalone harness runs the
+  195-case DemoApp corpus through every SPM-consumable Swift email
+  validator we could locate (evanrobertson, MimeEmailParser, bdolewski's
+  regex, jwelton-equivalent via `NSDataDetector`) and emits a Markdown
+  accuracy table. Kept out of the main `Package.swift` so library
+  consumers don't transitively pull the competitors. See the
+  "Comparison with other Swift email validators" section in the README
+  for the published results and the methodology.
+
+### Security
+
+- The length-capped public wrappers close the only input-length DoS
+  vector found in a manual audit of the library's public API surface.
+  `EmailSyntaxValidator` users were never exposed (it already caps the
+  input upstream); the vector applied only to callers invoking
+  `IPAddressSyntaxValidator` directly. No crashes were introduced;
+  `EmailSyntaxValidator.correctlyFormatted(_:)` behaviour is unchanged.
+
 ## [1.3.1] - 2026-04-23
 
 ### Changed
