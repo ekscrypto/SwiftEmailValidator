@@ -75,6 +75,14 @@ public final class EmailSyntaxValidator {
     }
     
     /// Validation options that modify the behavior of email validation.
+    ///
+    /// ## API shape rationale
+    /// This is exposed in the public API as `options: [Options] = []` even though only one case
+    /// currently exists. The array shape is **deliberate forward-compatibility**: adding a new
+    /// case to `Options` is non-breaking, while collapsing this to a `Bool` parameter today
+    /// would force a major version bump as soon as a second option was needed. Reviewers who
+    /// suggest "this should just be a `Bool`" should leave it as-is unless the project
+    /// explicitly commits to never adding more options.
     public enum Options: Equatable {
         /// Automatically encode Unicode email addresses using RFC 2047 when using `.asciiWithUnicodeExtension` compatibility.
         ///
@@ -284,6 +292,17 @@ public final class EmailSyntaxValidator {
         return .addressLiteral(addressLiteralCandidate)
     }
 
+    // MARK: - CharacterSet definitions
+    //
+    // These sets are intentionally co-located with the parsing functions that consume them.
+    // Splitting them into a separate file is tempting because the block is large, but the
+    // construction order is a load-bearing invariant — every set that uses `.subtracting()`
+    // must complete those subtractions BEFORE `.union(supplementaryPlanes)`, otherwise
+    // Foundation's `CharacterSet` corrupts the supplementary-plane bitmap (see notes near
+    // atextUnicodeCharacterSet). Co-locating the sets with their consumers makes that
+    // invariant easy to spot in code review; splitting across files makes it easy to
+    // accidentally violate. Don't move these unless you also move the parsing functions.
+
     private static let digitRange: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x30)!...Unicode.Scalar(0x39)! // 0-9
     private static let alphaUpperRange: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x41)!...Unicode.Scalar(0x5A)! // A-Z
     private static let alphaLowerRange: ClosedRange<Unicode.Scalar> = Unicode.Scalar(0x61)!...Unicode.Scalar(0x7A)! // a-z
@@ -405,17 +424,43 @@ public final class EmailSyntaxValidator {
         .subtracting(unicodeSpaceChars) // Exclude Unicode space-like chars (Zs category) — spoofing prevention
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
+    /// Belt-and-suspenders guard for supplementary-plane scalars that must be rejected from
+    /// email local parts regardless of CharacterSet membership. These are the ranges Foundation's
+    /// `CharacterSet.subtracting()` / `.contains()` has historically handled unreliably for
+    /// supplementary planes (see CharacterSet construction notes earlier in this file). Keeping
+    /// this list in one place ensures `extractDotAtom` and `extractQuotedString` reject the same
+    /// supplementary-plane scalars even if one path's CharacterSet logic regresses.
+    ///
+    /// Coverage:
+    /// - U+1FFFE / U+1FFFF — Plane 1 (SMP) noncharacters (Unicode §23.7 permanently reserved)
+    /// - U+2FFFE / U+2FFFF — Plane 2 (SIP) noncharacters (Unicode §23.7 permanently reserved)
+    /// - U+3FFFE / U+3FFFF — Plane 3 (TIP) noncharacters (Unicode §23.7 permanently reserved)
+    /// - U+40000–U+DFFFF  — Planes 4–13 (entirely unassigned in Unicode)
+    /// - U+E0000–U+10FFFF — entire SSP (Tags, VS Supplement, unassigned gaps) + PUA-A/B
+    private static func isRejectedSupplementaryScalar(_ scalar: Unicode.Scalar) -> Bool {
+        let value = scalar.value
+        return (value == 0x1FFFE || value == 0x1FFFF)
+            || (value == 0x2FFFE || value == 0x2FFFF)
+            || (value == 0x3FFFE || value == 0x3FFFF)
+            || (value >= 0x40000 && value <= 0xDFFFF)
+            || (value >= 0xE0000 && value <= 0x10FFFF)
+    }
+
     private static func extractDotAtom(_ candidate: String, compatibility: Compatibility) -> String? {
         guard !candidate.hasPrefix("\""),
               let atRange = candidate.range(of: "@")
         else {
             return nil
         }
-        
+
         let dotAtom = candidate[..<atRange.lowerBound]
         // Avoid .inverted on sets containing supplementary planes — Foundation has a known bug
         // where .inverted doesn't correctly handle supplementary-plane bitmaps. Check membership
-        // in the allowed set directly using per-scalar containment instead.
+        // in the allowed set directly using per-scalar containment instead. The dot-atom path is
+        // already per-scalar (allSatisfy over unicodeScalars), so spoofing-class BMP exclusions
+        // are handled entirely by atextUnicodeCharacterSet — no inline BMP guard is needed here.
+        // The supplementary-plane guard below is belt-and-suspenders for the ranges Foundation
+        // has been unreliable about; see isRejectedSupplementaryScalar for the rationale.
         let allowedCharacterSet: CharacterSet = compatibility == .ascii ? atextCharacterSet : atextUnicodeCharacterSet
         guard dotAtom.count > 0,
               dotAtom.utf8.count <= 64,
@@ -424,22 +469,7 @@ public final class EmailSyntaxValidator {
               dotAtom.components(separatedBy: ".").allSatisfy({ label in
                   label.count > 0
                       && label.unicodeScalars.allSatisfy({ allowedCharacterSet.contains($0) })
-                      // Reject supplementary-plane ranges excluded from allowedCharacterSet via
-                      // explicit scalar guards (Foundation CharacterSet.contains() is reliable for
-                      // individual scalars, but belt-and-suspenders for these security-sensitive ranges):
-                      // U+1FFFE-U+1FFFF: Plane 1 (SMP) noncharacters — Unicode §23.7 permanently reserved
-                      // U+2FFFE-U+2FFFF: Plane 2 (SIP) noncharacters — Unicode §23.7 permanently reserved
-                      // U+3FFFE-U+3FFFF: Plane 3 (TIP) noncharacters — Unicode §23.7 permanently reserved
-                      // U+40000-U+DFFFF: Planes 4-13 (entirely unassigned in Unicode)
-                      // U+E0000-U+EFFFF: entire SSP (Tags block, unassigned gaps, VS Supplement)
-                      // U+F0000-U+10FFFF: Supplementary PUA-A/B
-                      && !label.unicodeScalars.contains(where: {
-                          ($0.value == 0x1FFFE || $0.value == 0x1FFFF)   // Plane 1 noncharacters (§23.7)
-                          || ($0.value == 0x2FFFE || $0.value == 0x2FFFF) // Plane 2 noncharacters (§23.7)
-                          || ($0.value == 0x3FFFE || $0.value == 0x3FFFF) // Plane 3 noncharacters (§23.7)
-                          || ($0.value >= 0x40000 && $0.value <= 0xDFFFF)  // Planes 4-13 (entirely unassigned)
-                          || ($0.value >= 0xE0000 && $0.value <= 0x10FFFF) // Entire SSP + PUA-A/B
-                      })
+                      && !label.unicodeScalars.contains(where: isRejectedSupplementaryScalar)
               })
         else {
             return nil
@@ -474,9 +504,16 @@ public final class EmailSyntaxValidator {
                 return nil
             }
             // Invisible/format scalars can combine with an adjacent base character into a single
-            // grapheme cluster. The CharacterSet check below only examines the first scalar, so
+            // grapheme cluster. The CharacterSet check at the bottom of this loop only examines
+            // the first scalar of each Character (via allSatisfy on a single Character), so
             // security-excluded scalars that appear as combining elements would slip through.
-            // Scan every scalar in the cluster explicitly to prevent this.
+            //
+            // The BMP guard below is therefore NOT a duplicate of the dot-atom path's checks —
+            // dot-atom iterates per-scalar via `unicodeScalars.allSatisfy` and relies on
+            // qtextUnicodeSMTPCharacterSet / atextUnicodeCharacterSet's subtractions. This loop
+            // iterates per-Character (grapheme cluster), so the BMP exclusions must be re-asserted
+            // per scalar inside the cluster. Only the supplementary-plane portion is shared with
+            // dot-atom; that part is delegated to isRejectedSupplementaryScalar.
             guard !character.unicodeScalars.contains(where: { s in
                 s.value == 0x00AD ||                            // U+00AD Soft Hyphen
                 s.value == 0x00A0 ||                            // U+00A0 NO-BREAK SPACE (spoofing: looks like space)
@@ -492,11 +529,7 @@ public final class EmailSyntaxValidator {
                 (s.value == 0x2028 || s.value == 0x2029) ||     // U+2028 Line Sep, U+2029 Para Sep
                 (s.value >= 0xFDD0 && s.value <= 0xFDEF) ||     // U+FDD0-U+FDEF Unicode noncharacters
                 (s.value == 0xFFFE || s.value == 0xFFFF) ||     // U+FFFE/U+FFFF BMP noncharacters
-                (s.value == 0x1FFFE || s.value == 0x1FFFF) ||   // Plane 1 noncharacters (§23.7)
-                (s.value == 0x2FFFE || s.value == 0x2FFFF) ||   // Plane 2 noncharacters (§23.7)
-                (s.value == 0x3FFFE || s.value == 0x3FFFF) ||   // Plane 3 noncharacters (§23.7)
-                (s.value >= 0x40000 && s.value <= 0xDFFFF) ||   // Planes 4-13 (entirely unassigned)
-                (s.value >= 0xE0000 && s.value <= 0x10FFFF)     // Entire SSP (Tags, unassigned gaps, VS Sup) + PUA-A/B
+                isRejectedSupplementaryScalar(s)                // Shared with extractDotAtom
             }) else {
                 return nil
             }
