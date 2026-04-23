@@ -46,6 +46,14 @@ SwiftEmailValidator is an RFC-compliant email syntax validator supporting intern
 - Validates IPv4 and IPv6 address literals in email hosts
 - Used when `allowAddressLiteral: true` is passed to validation methods
 
+**SwiftEmailValidatorUTS39** (`Sources/SwiftEmailValidatorUTS39/`)
+- Opt-in companion library layering UTS #39 Unicode Security Mechanisms on top of the core validator
+- Import separately (`import SwiftEmailValidatorUTS39`) to avoid bundling ~280 KB of Unicode data into callers that don't need it
+- Provides `UTS39.Policy` with Identifier_Status filtering, mixed-script detection (Single/Highly/Moderately Restrictive), and §4 confusable skeletons
+- Exposes `UTS39.localPartValidator(_:)` / `UTS39.domainValidator(_:)` factories plus convenience overloads `EmailSyntaxValidator.correctlyFormatted(_:uts39:)` / `mailbox(from:uts39:)`
+- Plugs into the main validator through the `localPartValidator` closure parameter (added in 1.5.0)
+- Data tables are generated from UCD via `Sources/SwiftEmailValidatorUTS39/Tools/generate.py`; regenerate only on UCD version upgrades
+
 ### Validation Flow
 
 1. Optionally decode RFC2047 encoded input
@@ -65,10 +73,11 @@ SwiftEmailValidator is an RFC-compliant email syntax validator supporting intern
 - Domain validation is pluggable via closure parameter
 - Character validation uses pre-built `CharacterSet` instances for efficiency
 
-### RFC Standards Implemented
+### RFC / Unicode Standards Implemented
 
 - RFC 822: Standard for the format of ARPA Internet text messages
 - RFC 2047: MIME Part Three - Message header extensions for non-ASCII text
 - RFC 5321: Simple Mail Transfer Protocol (SMTP)
 - RFC 5322: Internet Message Format
 - RFC 6531: SMTP Extension for Internationalized Email
+- UTS #39: Unicode Security Mechanisms (via opt-in `SwiftEmailValidatorUTS39` target)

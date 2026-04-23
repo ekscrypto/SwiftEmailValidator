@@ -13,6 +13,9 @@ let package = Package(
         .library(
             name: "SwiftEmailValidator",
             targets: ["SwiftEmailValidator"]),
+        .library(
+            name: "SwiftEmailValidatorUTS39",
+            targets: ["SwiftEmailValidatorUTS39"]),
     ],
     dependencies: [
         .package(
@@ -25,8 +28,16 @@ let package = Package(
             name: "SwiftEmailValidator",
             dependencies: ["SwiftPublicSuffixList"],
             resources: []),
+        .target(
+            name: "SwiftEmailValidatorUTS39",
+            dependencies: ["SwiftEmailValidator", "SwiftPublicSuffixList"],
+            exclude: ["Tools"],
+            resources: []),
         .testTarget(
             name: "SwiftEmailValidatorTests",
             dependencies: ["SwiftEmailValidator","SwiftPublicSuffixList"]),
+        .testTarget(
+            name: "SwiftEmailValidatorUTS39Tests",
+            dependencies: ["SwiftEmailValidatorUTS39", "SwiftEmailValidator", "SwiftPublicSuffixList"]),
     ]
 )

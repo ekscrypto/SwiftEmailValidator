@@ -123,20 +123,23 @@ public final class EmailSyntaxValidator {
     ///   - compatibility: (Optional) Compatibility required, one of .ascii (RFC822), .asciiWithUnicodeExtension (RFC2047) or .unicode (RFC6531). Uses .unicode by default.
     ///   - allowAddressLiteral: (Optional) True to allow IPv4 & IPv6 instead of domains in email addresses, false otherwise. False by default.
     ///   - domainValidator: Non-escaping closure that returns true if the domain should be considered valid or false to be rejected.
+    ///   - localPartValidator: Non-escaping closure invoked after RFC-level local-part parsing succeeds. Receives the semantic local-part value — a dot-atom as-is, or a quoted-string in its cleaned (unescaped, unquoted) form. Return false to reject. Intended as an extension point for out-of-band policies such as UTS #39 script analysis. Accepts everything by default.
     /// - Returns: True if the syntax is valid for the requested compatibility mode, or could be adapted to be valid when `.autoEncodeToRfc2047` is supplied.
     public static func correctlyFormatted(_ candidate: String,
                                           options: [Options] = [],
                                           compatibility: Compatibility = .unicode,
                                           allowAddressLiteral: Bool = false,
-                                          domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0)) }) -> Bool {
+                                          domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0)) },
+                                          localPartValidator: (String) -> Bool = { _ in true }) -> Bool {
 
         mailbox(from: candidate,
                 options: options,
                 compatibility: compatibility,
                 allowAddressLiteral: allowAddressLiteral,
-                domainValidator: domainValidator) != nil
+                domainValidator: domainValidator,
+                localPartValidator: localPartValidator) != nil
     }
-    
+
     /// Attempt to extract the local and host parts of the email address specified.
     /// - Parameters:
     ///   - candidate: String to validate
@@ -144,12 +147,14 @@ public final class EmailSyntaxValidator {
     ///   - compatibility: (Optional) Compatibility required, one of .ascii (RFC822), .asciiWithUnicodeExtension (RFC2047) or .unicode (RFC6531). Uses .unicode by default.
     ///   - allowAddressLiteral: (Optional) True to allow IPv4 & IPv6 instead of domains in email addresses, false otherwise. False by default.
     ///   - domainValidator: Non-escaping closure that returns true if the domain should be considered valid or false to be rejected.
+    ///   - localPartValidator: Non-escaping closure invoked after RFC-level local-part parsing succeeds. Receives the semantic local-part value — a dot-atom as-is, or a quoted-string in its cleaned (unescaped, unquoted) form. Return false to reject. Intended as an extension point for out-of-band policies such as UTS #39 script analysis. Accepts everything by default.
     /// - Returns: A `Mailbox` describing the parsed email on success, or `nil` if validation fails.
     public static func mailbox(from candidate: String,
                                options: [Options] = [],
                                compatibility: Compatibility = .unicode,
                                allowAddressLiteral: Bool = false,
-                               domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0)) }) -> Mailbox? {
+                               domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0)) },
+                               localPartValidator: (String) -> Bool = { _ in true }) -> Mailbox? {
         
         var smtpCandidate: String = candidate
         var extractionCompatibility: Compatibility = compatibility
@@ -175,7 +180,8 @@ public final class EmailSyntaxValidator {
                 hostCandidate: String(smtpCandidate.dropFirst(dotAtom.count + 1)),
                 compatibility: extractionCompatibility,
                 allowAddressLiteral: allowAddressLiteral,
-                domainValidator: domainValidator)
+                domainValidator: domainValidator,
+                localPartValidator: localPartValidator)
         }
 
         if let quotedString = extractQuotedString(smtpCandidate, compatibility: extractionCompatibility) {
@@ -185,16 +191,18 @@ public final class EmailSyntaxValidator {
                 hostCandidate: String(smtpCandidate.dropFirst(quotedString.integral.count + 1)),
                 compatibility: extractionCompatibility,
                 allowAddressLiteral: allowAddressLiteral,
-                domainValidator: domainValidator)
+                domainValidator: domainValidator,
+                localPartValidator: localPartValidator)
         }
-        
+
         if options.contains(.autoEncodeToRfc2047), let rfc2047candidate = candidateForRfc2047(candidate, compatibility: compatibility) {
             return mailbox(
                 from: rfc2047candidate,
                 options: [],
                 compatibility: compatibility,
                 allowAddressLiteral: allowAddressLiteral,
-                domainValidator: domainValidator)
+                domainValidator: domainValidator,
+                localPartValidator: localPartValidator)
         }
         
         return nil
@@ -233,7 +241,16 @@ public final class EmailSyntaxValidator {
         return RFC2047Coder.encode(candidate)
     }
     
-    private static func mailbox(localPart: Mailbox.LocalPart, originalCandidate: String, hostCandidate: String, compatibility: Compatibility, allowAddressLiteral: Bool, domainValidator: (String) -> Bool) -> Mailbox? {
+    private static func mailbox(localPart: Mailbox.LocalPart, originalCandidate: String, hostCandidate: String, compatibility: Compatibility, allowAddressLiteral: Bool, domainValidator: (String) -> Bool, localPartValidator: (String) -> Bool) -> Mailbox? {
+
+        let semanticValue: String
+        switch localPart {
+        case .dotAtom(let value): semanticValue = value
+        case .quotedString(let value): semanticValue = value
+        }
+        guard localPartValidator(semanticValue) else {
+            return nil
+        }
 
         guard let host = extractHost(from: hostCandidate, compatibility: compatibility, allowAddressLiteral: allowAddressLiteral, domainValidator: domainValidator) else {
             return nil
