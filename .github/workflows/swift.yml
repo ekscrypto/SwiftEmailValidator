@@ -12,7 +12,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Build
       run: swift build -v
 
@@ -20,11 +20,11 @@ jobs:
       run: swift test -v --enable-code-coverage
 
     - name: Swift Coverage Conversion
-      uses: sersoft-gmbh/swift-coverage-action@v2.0.1
+      uses: sersoft-gmbh/swift-coverage-action@v4
       id: coverage-files
 
     - name: Codecov
-      uses: codecov/codecov-action@v2.1.0
+      uses: codecov/codecov-action@v4
       with:
         flags: unittests
         files: ${{join(fromJSON(steps.coverage-files.outputs.files), ',')}}

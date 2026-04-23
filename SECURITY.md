@@ -4,12 +4,22 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.0.3   | :white_check_mark: |
+| 1.2.x   | :white_check_mark: |
+| < 1.2   | :x:                |
+
+The 1.2.x line consolidates the Unicode/RFC security hardening shipped in
+April 2026 (Zs-category space spoofing, supplementary-plane noncharacters,
+Variation Selectors, the Unicode Tags block, RFC 2047 Q-decode C1 rejection,
+and others). Earlier versions accept inputs that should be rejected and are
+no longer supported.
 
 ## Reporting a Vulnerability
 
-If security vulnerability is identified, please send an email to dave /@/ encoded.life with the details.
+If a security vulnerability is identified, please send an email to
+`dave /@/ encoded.life` with the details. Please do not file a public issue
+for vulnerabilities; private disclosure first lets a fix ship before details
+are public.
 
-While this library is not expected to be updated often, if a security vulnerability is identified a priority 
-update will be implemented. Due to the young age of this library, I thank you for testing this library
-extensively before using it in business critical systems.
+Security fixes ship as a priority update on the supported branch. Please
+test this library against your own corpus before relying on it for
+business-critical mail handling.

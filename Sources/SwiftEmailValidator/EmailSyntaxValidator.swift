@@ -108,14 +108,14 @@ public final class EmailSyntaxValidator {
         case unicode
     }
     
-    /// Verify if the email address is correctly formatted
+    /// Verify if the email address is correctly formatted.
     /// - Parameters:
     ///   - candidate: String to validate
-    ///   - strategy: (Optional) ValidationStrategy to use, use .strict for strict validation or use .autoEncodeToRfc2047 for some auto-formatting flexibility, Uses .strict by default.
+    ///   - options: (Optional) Validation options. Pass `[.autoEncodeToRfc2047]` to allow Unicode input that fails strict validation to be auto-encoded as an RFC 2047 encoded-word (only applies when `compatibility == .asciiWithUnicodeExtension`). Empty by default.
     ///   - compatibility: (Optional) Compatibility required, one of .ascii (RFC822), .asciiWithUnicodeExtension (RFC2047) or .unicode (RFC6531). Uses .unicode by default.
     ///   - allowAddressLiteral: (Optional) True to allow IPv4 & IPv6 instead of domains in email addresses, false otherwise. False by default.
-    ///   - domainValidator: Non-escaping closure that return true if the domain should be considered valid or false to be rejected
-    /// - Returns: True if syntax is valid (.smtpHeader validation strategy) or could be adapted to be valid (.userInterface validation strategy)
+    ///   - domainValidator: Non-escaping closure that returns true if the domain should be considered valid or false to be rejected.
+    /// - Returns: True if the syntax is valid for the requested compatibility mode, or could be adapted to be valid when `.autoEncodeToRfc2047` is supplied.
     public static func correctlyFormatted(_ candidate: String,
                                           options: [Options] = [],
                                           compatibility: Compatibility = .unicode,
@@ -129,14 +129,14 @@ public final class EmailSyntaxValidator {
                 domainValidator: domainValidator) != nil
     }
     
-    /// Attempt to extract the Local and Remote parts of the email address specified
+    /// Attempt to extract the local and host parts of the email address specified.
     /// - Parameters:
     ///   - candidate: String to validate
-    ///   - strategy: (Optional) ValidationStrategy to use, use .smtpHeader for strict validation or use UI strategy for some auto-formatting flexibility, Uses .smtpHeader by default.
+    ///   - options: (Optional) Validation options. Pass `[.autoEncodeToRfc2047]` to allow Unicode input that fails strict validation to be auto-encoded as an RFC 2047 encoded-word (only applies when `compatibility == .asciiWithUnicodeExtension`). Empty by default.
     ///   - compatibility: (Optional) Compatibility required, one of .ascii (RFC822), .asciiWithUnicodeExtension (RFC2047) or .unicode (RFC6531). Uses .unicode by default.
     ///   - allowAddressLiteral: (Optional) True to allow IPv4 & IPv6 instead of domains in email addresses, false otherwise. False by default.
-    ///   - domainValidator: Non-escaping closure that return true if the domain should be considered valid or false to be rejected
-    /// - Returns: Mailbox struct on success, nil otherwise
+    ///   - domainValidator: Non-escaping closure that returns true if the domain should be considered valid or false to be rejected.
+    /// - Returns: A `Mailbox` describing the parsed email on success, or `nil` if validation fails.
     public static func mailbox(from candidate: String,
                                options: [Options] = [],
                                compatibility: Compatibility = .unicode,
