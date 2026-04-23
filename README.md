@@ -7,6 +7,8 @@ Since email addresses are local @ remote the validator also includes IPAddressSy
 
 This Swift Package does not require an Internet connection at runtime and the only dependency is the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library.
 
+The package ships **two library products**: `SwiftEmailValidator` (core RFC syntax validation, always-on) and `SwiftEmailValidatorUTS39` (opt-in Unicode Security Mechanisms — mixed-script detection, confusable skeletons, Identifier_Status filtering). The UTS #39 target carries ~280 KB of Unicode data and is imported separately so the core library stays slim. See [SwiftEmailValidatorUTS39](#swiftemailvalidatoruts39-unicode-security-mechanisms) below.
+
 ## Installation
 ### Swift Package Manager (SPM)
 
@@ -18,9 +20,19 @@ You can use The Swift Package Manager to install SwiftEmailValidator by adding i
         name: "MyApp",
         targets: [],
         dependencies: [
-            .Package(url: "https://github.com/ekscrypto/SwiftEmailValidator.git", .upToNextMajor(from: "1.3.0"))
+            .Package(url: "https://github.com/ekscrypto/SwiftEmailValidator.git", .upToNextMajor(from: "1.5.0"))
         ]
     )
+
+Then depend on **one or both** library products from your target:
+
+    .target(
+        name: "MyApp",
+        dependencies: [
+            .product(name: "SwiftEmailValidator", package: "SwiftEmailValidator"),
+            // Opt in only if you need UTS #39 Unicode Security checks:
+            .product(name: "SwiftEmailValidatorUTS39", package: "SwiftEmailValidator"),
+        ])
 
 ## Performance Considerations
 
@@ -186,6 +198,143 @@ homograph in quotes would otherwise sidestep the check:
 If your application needs the *exact* scalar sequence inside a quoted local part preserved,
 parse the address first with `EmailSyntaxValidator.mailbox(from:)` and apply normalization
 only to the components you choose to canonicalize.
+
+### SwiftEmailValidatorUTS39 (Unicode Security Mechanisms)
+
+An **opt-in companion library** (second `.library` product in `Package.swift`)
+that layers [UTS #39](https://www.unicode.org/reports/tr39/) Unicode Security
+Mechanisms on top of the core validator. The addon ships ~280 KB of
+UCD-derived data (Identifier_Status, Script_Extensions, §4 confusables) which
+stays entirely inside the companion target, so `import SwiftEmailValidator`
+alone pays no size cost.
+
+Three mechanisms are available, composable via `UTS39.Policy`:
+
+* **Identifier_Status filter** — rejects scalars marked `Restricted` by
+  UTS #39 (obscure or historic scripts like Linear B, Runic, Deseret).
+  On by default.
+* **Mixed-script detection** — classifies the string against the
+  UTS #39 §5.2 Restriction Level ladder: Single Script / Highly Restrictive /
+  Moderately Restrictive. Catches the classic homograph vectors
+  (Latin + Cyrillic `а`, Latin + Greek `ο`). Default level is
+  `.highlyRestrictive`, matching Google's published identifier-security
+  guidance.
+* **§4 confusable skeletons** — computes the skeleton of a candidate
+  string and compares it against caller-supplied **protected forms**
+  (brand names, reserved account handles, etc.). Off by default — enable
+  per call.
+
+#### Simple use — the convenience API
+
+```swift
+import SwiftEmailValidator
+import SwiftEmailValidatorUTS39
+
+// Default policy: Highly Restrictive + Identifier_Status filter on,
+// confusables off. Checks both local part and each domain label.
+if EmailSyntaxValidator.correctlyFormatted("alice@example.com", uts39: .init()) {
+    // Accepted: single-script Latin, registered public suffix.
+}
+
+// Classic Cyrillic-а homograph — rejected by mixed-script detection.
+EmailSyntaxValidator.correctlyFormatted("p\u{0430}ypal@example.com",
+                                        uts39: .init())
+// false
+
+// Japanese mixed script — accepted per Highly Restrictive
+// whitelist (Latin + Han + Hiragana + Katakana).
+EmailSyntaxValidator.correctlyFormatted("user会社カナ@example.com",
+                                        uts39: .init())
+// true
+```
+
+The same overload exists for `mailbox(from:uts39:)`:
+
+```swift
+if let mb = EmailSyntaxValidator.mailbox(from: "ユーザー@example.com",
+                                         uts39: .init()) {
+    // mb.localPart == .dotAtom("ユーザー")  (single-script Katakana)
+}
+```
+
+#### Tuning the policy
+
+```swift
+var policy = UTS39.Policy()
+policy.level = .singleScript              // stricter than the default
+policy.rejectRestrictedIdentifiers = true // default
+
+// Protect specific brand names against whole-script confusables:
+policy.rejectConfusables = true
+policy.confusableSkeletons = ["paypal", "google", "apple"]
+// An allowlist exempts known-safe strings that would collide at skeleton level:
+policy.confusableAllowlist = ["paypal"] // the literal protected form itself
+
+EmailSyntaxValidator.correctlyFormatted(candidate, uts39: policy)
+```
+
+#### Selecting a Restriction Level
+
+```swift
+.singleScript           // The intersection of Script_Extensions across all
+                        // scalars is non-empty. Pure Latin, pure Cyrillic,
+                        // pure Han all pass. Mixing any two distinct
+                        // scripts (outside Common/Inherited) fails.
+
+.highlyRestrictive      // Recommended default. Adds these whitelisted combos:
+                        //   Latin + Han + Hiragana + Katakana  (Japanese)
+                        //   Latin + Han + Hangul               (Korean)
+                        //   Latin + Han + Bopomofo             (Chinese zhuyin)
+
+.moderatelyRestrictive  // Highly Restrictive + Latin plus any single other
+                        // Recommended script, except Cyrillic and Greek
+                        // (too confusable with Latin per UTS #39 §5.2.3).
+```
+
+#### Lower-level: composing the closures yourself
+
+If you need the pieces independently (e.g. validating just a local part, or
+attaching UTS #39 to a non-default `domainValidator`), build the closures
+directly:
+
+```swift
+let policy = UTS39.Policy()
+
+EmailSyntaxValidator.correctlyFormatted(
+    candidate,
+    domainValidator: UTS39.domainValidator(policy),        // PSL + UTS #39 per label
+    localPartValidator: UTS39.localPartValidator(policy))  // UTS #39 on the local part
+```
+
+`UTS39.domainValidator(_:base:)` accepts a custom base closure — by default
+it wraps `PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0))`:
+
+```swift
+let customRules: [[String]] = [["com"], ["net"]]
+let domainValidator = UTS39.domainValidator(policy, base: {
+    PublicSuffixList.isUnrestricted($0, rules: customRules)
+})
+```
+
+#### The hook on the core library
+
+The core `EmailSyntaxValidator` exposes a `localPartValidator: (String) -> Bool`
+closure (default `{ _ in true }`) that the addon plugs into. You can use it
+directly to attach any per-address policy you control, without depending on
+the UTS #39 target:
+
+```swift
+import SwiftEmailValidator
+
+// Reject any local part over 30 characters (a product policy, not an RFC rule).
+EmailSyntaxValidator.correctlyFormatted(
+    candidate,
+    localPartValidator: { $0.count <= 30 })
+```
+
+The closure receives the **semantic** local-part string: a dot-atom as-is, or
+a quoted-string in its **cleaned (unescaped, unquoted)** form — so
+`"a\"b"@example.com` reaches the closure as `a"b`, not `"a\"b"`.
 
 ### IPAddressSyntaxValidator
 
@@ -461,3 +610,6 @@ https://datatracker.ietf.org/doc/html/rfc6531
 
 RFC6532 - Internationalized Email Headers (NFC normalization, §3.1)
 https://datatracker.ietf.org/doc/html/rfc6532
+
+UTS #39 - Unicode Security Mechanisms (Restriction Levels, §4 Confusables — via opt-in `SwiftEmailValidatorUTS39`)
+https://www.unicode.org/reports/tr39/

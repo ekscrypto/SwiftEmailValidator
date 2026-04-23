@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-04-23
+
+### Added
+
+- **`SwiftEmailValidatorUTS39` companion library target.** New second
+  `.library` product in `Package.swift` that layers
+  [UTS #39](https://www.unicode.org/reports/tr39/) Unicode Security
+  Mechanisms on top of the core validator. Callers who don't need it
+  continue to `import SwiftEmailValidator` and pay no size cost; callers
+  who want anti-spoofing add `import SwiftEmailValidatorUTS39` and opt
+  in per call. All ~280 KB of UCD-derived data lives in the addon target.
+  Covers:
+  - **Identifier_Status filter** — rejects Restricted scripts
+    (Linear B, Runic, Deseret, etc.).
+  - **Mixed-script detection** — Single Script / Highly Restrictive /
+    Moderately Restrictive per UTS #39 §5.2, using per-scalar
+    `Script_Extensions ∩ target` intersection semantics.
+  - **§4 confusable skeletons** — skeleton-equality against
+    caller-supplied protected forms. Iterates map + NFD to a fixed
+    point (confusables.txt has 13 non-idempotent entries requiring up
+    to 3 iterations) and handles 48 multi-scalar NFD sources via a
+    longest-match prefix table.
+- **`localPartValidator` parameter** on `EmailSyntaxValidator.correctlyFormatted`
+  and `mailbox(from:)`. Non-escaping closure applied to the semantic
+  local-part string (dot-atom as-is, quoted-string cleaned/unescaped)
+  after RFC parsing succeeds. Default `{ _ in true }` preserves existing
+  behavior; this is the extension point the UTS #39 addon uses. Symmetric
+  with the existing `domainValidator` closure.
+- **`EmailSyntaxValidator.correctlyFormatted(_:uts39:)` and
+  `mailbox(from:uts39:)` convenience overloads** (via extension in the
+  addon target). Wire a `UTS39.Policy` into both the local-part and
+  domain-label validators in one call.
+- **`UTS39.Policy` struct** with four knobs: `level: RestrictionLevel`,
+  `rejectRestrictedIdentifiers`, `rejectConfusables`, and caller-supplied
+  `confusableSkeletons` / `confusableAllowlist` sets.
+
+### Data pipeline
+
+- **`Sources/SwiftEmailValidatorUTS39/Tools/generate.py` + `fetch-ucd.sh`.**
+  Manual regeneration pipeline (not build-time) for producing
+  `Data/{IdentifierStatus,Scripts,Confusables}.swift` from UCD 17.0.0.
+  Re-run only on Unicode version upgrades; checked-in Swift files are
+  the source of truth for downstream consumers.
+
+### Tests
+
+- Test count grew from 164 to 242 (all passing).
+- **`LocalPartValidatorHookTests`** (7 cases) covering the new hook on
+  the main library: default pass-through, rejection surfacing as `nil`,
+  cleaned quoted-string semantic form, and interaction with
+  auto-RFC2047 retry.
+- **`SwiftEmailValidatorUTS39Tests`** (71 cases across 6 files):
+  `IdentifierStatusTests`, `MixedScriptTests`,
+  `RestrictionLevelEdgeCaseTests` (ICU-inspired boundary cases),
+  `ConfusablesTests`, `ConfusablesSkeletonRegressionTests` (walks
+  every entry in the generated confusables table, asserting
+  `skeleton(source) == skeleton(target)` — this is the test that
+  surfaced the non-transitive-closure and multi-scalar NFD bugs
+  during implementation), `DomainLabelTests`, `ConvenienceAPITests`.
+
 ## [1.4.1] - 2026-04-23
 
 ### Fixed
