@@ -208,9 +208,17 @@ public final class EmailSyntaxValidator {
     private static func candidateForRfc2047(_ candidate: String, compatibility: Compatibility) -> String? {
         
         // Avoid .inverted on sets containing supplementary planes — use per-scalar containment.
+        // The CharacterSet carries the full supplementary-plane block via `.union(supplementaryPlanes)`
+        // because Foundation's `.subtracting()` corrupts supplementary-plane bitmaps (see the
+        // CharacterSet construction notes below). Supplementary-plane exclusions therefore live
+        // outside the set, in `isRejectedSupplementaryScalar`, and must be applied here too —
+        // otherwise Tag/PUA/noncharacter scalars would pass this gate and be handed to
+        // `RFC2047Coder.encode` only to be rejected on re-parse. Apply both checks per-scalar.
         guard compatibility == .asciiWithUnicodeExtension,
               !candidate.hasPrefix("=?"),
-              candidate.unicodeScalars.allSatisfy({ qtextUnicodeSMTPCharacterSet.contains($0) })
+              candidate.unicodeScalars.allSatisfy({
+                  qtextUnicodeSMTPCharacterSet.contains($0) && !isRejectedSupplementaryScalar($0)
+              })
         else {
             // There are some unsupported ASCII characters which are invalid regardless of unicode or ASCII (newline, tabs, etc)
             return nil
@@ -503,34 +511,19 @@ public final class EmailSyntaxValidator {
             else {
                 return nil
             }
-            // Invisible/format scalars can combine with an adjacent base character into a single
-            // grapheme cluster. The CharacterSet check at the bottom of this loop only examines
-            // the first scalar of each Character (via allSatisfy on a single Character), so
-            // security-excluded scalars that appear as combining elements would slip through.
+            // Supplementary-plane scalars can attach as grapheme extenders (e.g. U+E0100 Variation
+            // Selector-17 in the Tags/VS-Supplement block) and merge with a preceding base scalar
+            // into a single Character. Because `qtextUnicodeSMTPCharacterSet` unions the entire
+            // supplementary-plane block (Foundation's `.subtracting()` corrupts supplementary-plane
+            // bitmaps, so exclusions can't live inside the set), the `allSatisfy` check at the
+            // bottom of this loop would accept such a combining scalar. Enforce the supplementary-
+            // plane exclusions here, per-scalar, via the same helper `extractDotAtom` uses.
             //
-            // The BMP guard below is therefore NOT a duplicate of the dot-atom path's checks —
-            // dot-atom iterates per-scalar via `unicodeScalars.allSatisfy` and relies on
-            // qtextUnicodeSMTPCharacterSet / atextUnicodeCharacterSet's subtractions. This loop
-            // iterates per-Character (grapheme cluster), so the BMP exclusions must be re-asserted
-            // per scalar inside the cluster. Only the supplementary-plane portion is shared with
-            // dot-atom; that part is delegated to isRejectedSupplementaryScalar.
-            guard !character.unicodeScalars.contains(where: { s in
-                s.value == 0x00AD ||                            // U+00AD Soft Hyphen
-                s.value == 0x00A0 ||                            // U+00A0 NO-BREAK SPACE (spoofing: looks like space)
-                s.value == 0x1680 ||                            // U+1680 OGHAM SPACE MARK (spoofing: looks like space)
-                (s.value >= 0x2000 && s.value <= 0x200A) ||     // U+2000-U+200A EN QUAD through HAIR SPACE (space-like)
-                (s.value >= 0x200B && s.value <= 0x200D) ||     // U+200B-U+200D ZWS/ZWNJ/ZWJ
-                s.value == 0x202F ||                            // U+202F NARROW NO-BREAK SPACE (spoofing: looks like space)
-                s.value == 0x205F ||                            // U+205F MEDIUM MATHEMATICAL SPACE (spoofing: looks like space)
-                (s.value >= 0x2060 && s.value <= 0x2065) ||     // U+2060-U+2065 invisible/reserved format chars
-                s.value == 0x3000 ||                            // U+3000 IDEOGRAPHIC SPACE (spoofing: looks like space)
-                s.value == 0xFEFF ||                            // U+FEFF BOM
-                (s.value >= 0xFE00 && s.value <= 0xFE0F) ||     // U+FE00-U+FE0F Variation Selectors
-                (s.value == 0x2028 || s.value == 0x2029) ||     // U+2028 Line Sep, U+2029 Para Sep
-                (s.value >= 0xFDD0 && s.value <= 0xFDEF) ||     // U+FDD0-U+FDEF Unicode noncharacters
-                (s.value == 0xFFFE || s.value == 0xFFFF) ||     // U+FFFE/U+FFFF BMP noncharacters
-                isRejectedSupplementaryScalar(s)                // Shared with extractDotAtom
-            }) else {
+            // BMP exclusions (zero-width, spaces, noncharacters, bidi, etc.) do NOT need an inline
+            // guard: they are subtracted from `qtextUnicodeSMTPCharacterSet` and the per-scalar
+            // `allSatisfy` at the bottom of this loop catches them whether they appear standalone
+            // or as combining scalars inside a grapheme cluster.
+            guard !character.unicodeScalars.contains(where: isRejectedSupplementaryScalar) else {
                 return nil
             }
             
