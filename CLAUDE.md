@@ -19,11 +19,20 @@ swift test --filter EmailSyntaxValidatorTests
 
 # Run a single test method
 swift test --filter EmailSyntaxValidatorTests/testDotAtomLocalPart
+
+# Run only UTS #39 companion-target tests
+swift test --filter SwiftEmailValidatorUTS39Tests
 ```
 
 ## DemoApp
 
 The `DemoApp/` directory contains a SwiftUI iOS app that compares email validation methods across ~150 test cases. Open `DemoApp/EmailValidation.xcodeproj` in Xcode to build and run on iOS Simulator.
+
+## Benchmarks
+
+`Benchmarks/` is a **separate SPM package** (not a target of the main `Package.swift`) so competitor dependencies do not leak into consumers. Run with `swift run -c release EmailBench` inside the directory; see `Benchmarks/README.md` for flags.
+
+Its `Sources/EmailBench/TestData.swift` is a **symlink** to the canonical `DemoApp/EmailValidation/Data/TestData.swift` — edit only the DemoApp file; the Benchmarks side tracks automatically.
 
 ## Architecture Overview
 
@@ -36,6 +45,11 @@ SwiftEmailValidator is an RFC-compliant email syntax validator supporting intern
 - Returns `Mailbox` struct containing parsed `localPart` (dotAtom or quotedString) and `host` (domain or addressLiteral)
 - Supports three compatibility modes: `.ascii` (RFC822), `.asciiWithUnicodeExtension` (RFC2047), `.unicode` (RFC6531)
 - Domain validation delegated to SwiftPublicSuffixList by default, customizable via `domainValidator` closure
+- Local-part policy is pluggable via `localPartValidator: (String) -> Bool` closure (default `{ _ in true }`, added in 1.5.0). Receives the **semantic** local part — dot-atom as-is, quoted-string in cleaned (unescaped, unquoted) form. This is the hook the UTS #39 companion target plugs into.
+
+**EmailNormalizer** (`Sources/SwiftEmailValidator/EmailNormalizer.swift`)
+- Pure Unicode normalization helpers (`nfc(_:)`, `nfkc(_:)`), intentionally decoupled from the validator. `nfc` is RFC 6532 §3.1 compliant; `nfkc` is a documented deliberate deviation for Gmail-style anti-spoofing.
+- Order matters: `nfkc` can expand length (e.g. `U+FDFA` → 18 scalars), so **always validate after normalizing, never the reverse**.
 
 **RFC2047Coder** (`Sources/SwiftEmailValidator/RFC2047Coder.swift`)
 - Encodes/decodes Unicode email addresses for ASCII-only systems
@@ -57,14 +71,15 @@ SwiftEmailValidator is an RFC-compliant email syntax validator supporting intern
 ### Validation Flow
 
 1. Optionally decode RFC2047 encoded input
-2. Extract and validate local part (before @) - either dot-atom or quoted-string format
-3. Extract host (after @) - either domain or address literal
-4. Validate domain against Public Suffix List (or custom validator)
-5. Return structured `Mailbox` or `nil`
+2. Extract and validate local part (before @) — either dot-atom or quoted-string format
+3. Run `localPartValidator` closure on the cleaned local part (UTS #39 policy plugs in here)
+4. Extract host (after @) — either domain or address literal
+5. Validate domain against Public Suffix List (or custom `domainValidator`)
+6. Return structured `Mailbox` or `nil`
 
 ### Dependencies
 
-- **SwiftPublicSuffixList**: Domain validation against the Public Suffix List. First use incurs 100-900ms initialization delay.
+- **SwiftPublicSuffixList** (>= 3.1.0): Domain validation against the Public Suffix List. First use incurs 100-900ms initialization delay. Since PSL v3 rejects non-ASCII hostnames, the default `domainValidator` closure runs `PublicSuffixList.ace($0)` before `isUnrestricted(_:)`; `Mailbox.Host.domain(...)` still returns the original user-facing string (only the validator dispatch uses ACE).
 
 ### Key Design Decisions
 
