@@ -118,6 +118,63 @@ The EmailSyntaxValidator functions all accept a domainValidator closure, which b
         // mailboxInfo.host == .domain("Ho Ho Ho North Pole")
     }
 
+### EmailNormalizer
+
+Applies Unicode **NFKC** (Normalization Form Compatibility Composition) to an email string.
+NFKC collapses compatibility-equivalent scalars to a single canonical representation — fullwidth
+`＠` → `@`, ligature `ﬁ` → `fi`, superscript `²` → `2`, decomposed `e`+◌́ → precomposed `é`, etc.
+This is the form typically used for account de-duplication and comparison, because it maps
+visually-indistinguishable inputs to the same byte sequence.
+
+`EmailNormalizer` is intentionally separate from `EmailSyntaxValidator`: normalization and
+validation are composable but distinct concerns. Pipe the output into the validator when you
+want both:
+
+    import SwiftEmailValidator
+
+    let rawInput = "ｕｓｅｒ＠example.com"           // fullwidth letters and '@'
+    let normalized = EmailNormalizer.nfkc(rawInput)   // → "user@example.com"
+
+    if EmailSyntaxValidator.correctlyFormatted(normalized) {
+        // Store / compare `normalized`, not `rawInput`.
+    }
+
+Or, to both normalize and parse in one go:
+
+    if let mailbox = EmailSyntaxValidator.mailbox(from: EmailNormalizer.nfkc(rawInput)) {
+        // mailbox.localPart == .dotAtom("user")
+        // mailbox.host      == .domain("example.com")
+    }
+
+What `EmailNormalizer.nfkc(_:)` does **not** do:
+
+* It does not validate syntax — normalization is a pure Unicode transform.
+* It does not lowercase — RFC 5321 §2.4 declares local parts case-sensitive.
+* It does not strip whitespace or perform any sanitization.
+
+#### Behaviour inside quoted-string local parts
+
+NFKC is applied to the whole address as a single Unicode stream, but this is **safe
+structurally**: the RFC 5321 delimiters `"` (U+0022), `\` (U+005C), and `@` (U+0040) are ASCII,
+and NFKC is a no-op on ASCII. The quoting structure is preserved and the output parses the same
+way as the input.
+
+Non-ASCII content *between* the quotes is normalized like the rest of the address. That is
+deliberate — the primary motivation for NFKC here is spoofing / account de-duplication, and
+an attacker who wraps a homograph in quotes would otherwise sidestep the check:
+
+    // All three of these collapse to the same canonical form after nfkc(_:):
+    EmailNormalizer.nfkc("admin@example.com")           // "admin@example.com"
+    EmailNormalizer.nfkc("ａｄｍｉｎ@example.com")       // "admin@example.com"
+    EmailNormalizer.nfkc(#""ａｄｍｉｎ"@example.com"#)   // #""admin"@example.com"#
+
+RFC 6532 §3.1 recommends normalization without distinguishing quoted vs. unquoted local parts,
+so this is RFC-conformant.
+
+If your application needs the *exact* scalar sequence inside a quoted local part preserved
+(rare), parse the address first with `EmailSyntaxValidator.mailbox(from:)` and apply NFKC only
+to the components you choose to canonicalize.
+
 ### IPAddressSyntaxValidator
 
     if IPAddressSyntaxValidator.matchIPv6("::1") {
@@ -188,14 +245,8 @@ This can create homograph confusion in account-registration systems:
 
 This is an **account-uniqueness concern**, not a syntax concern. The recommended mitigation for
 registration systems is NFKC normalization, which maps fullwidth characters back to their ASCII
-equivalents before storage or comparison:
-
-    import Foundation
-    // precomposedStringWithCompatibilityMapping applies NFKC:
-    // maps fullwidth ａ (U+FF41) → a (U+0061), etc.
-    let normalized = rawInput.precomposedStringWithCompatibilityMapping
-    let isValid = EmailSyntaxValidator.correctlyFormatted(normalized)
-    // Store/compare `normalized`, not `rawInput`
+equivalents before storage or comparison. Use `EmailNormalizer.nfkc(_:)` — see
+[EmailNormalizer](#emailnormalizer) below.
 
 If your application must restrict local parts to ASCII-range characters exclusively, use
 `.ascii` compatibility mode:
