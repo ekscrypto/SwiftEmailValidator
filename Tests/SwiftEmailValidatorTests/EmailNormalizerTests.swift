@@ -214,4 +214,55 @@ final class EmailNormalizerTests: XCTestCase {
         XCTAssertEqual(EmailNormalizer.nfc(input), input)
         XCTAssertEqual(EmailNormalizer.nfkc(input), "user@example.com")
     }
+
+    // MARK: - Idempotency / stability (UAX #15 D8/D9)
+
+    func testNfcIsIdempotent() {
+        // UAX #15 D8: NFC is stable under repeated application.
+        let inputs = [
+            "user@example.com",
+            "cafe\u{0301}@example.com",                // decomposed → composed on first pass
+            "\u{FF21}\u{FF22}\u{FF23}@example.com",    // fullwidth — NFC leaves alone
+            "🎉@example.com",
+            "\"\u{FF41}\u{FF44}\u{FF4D}\u{FF49}\u{FF4E}\"@example.com",
+        ]
+        for input in inputs {
+            let once = EmailNormalizer.nfc(input)
+            let twice = EmailNormalizer.nfc(once)
+            XCTAssertEqual(once, twice, "NFC must be idempotent for input: \(input)")
+        }
+    }
+
+    func testNfkcIsIdempotent() {
+        // UAX #15 D9: NFKC is stable under repeated application.
+        let inputs = [
+            "user@example.com",
+            "cafe\u{0301}@example.com",
+            "\u{FF21}\u{FF22}\u{FF23}@example.com",
+            "user\u{FDFA}@example.com",                // expansion case — must still stabilize
+            "\u{FB01}nance@example.com",
+            "user\u{00B2}@example.com",
+        ]
+        for input in inputs {
+            let once = EmailNormalizer.nfkc(input)
+            let twice = EmailNormalizer.nfkc(once)
+            XCTAssertEqual(once, twice, "NFKC must be idempotent for input: \(input)")
+        }
+    }
+
+    func testNfkcOutputIsAlsoInNfc() {
+        // UAX #15: NFKC ⊇ NFC. Re-applying NFC to NFKC output must be a no-op.
+        let inputs = [
+            "user@example.com",
+            "\u{FF21}\u{FF22}\u{FF23}@example.com",
+            "user\u{FDFA}@example.com",
+            "\u{FB01}nance@example.com",
+            "cafe\u{0301}@example.com",
+        ]
+        for input in inputs {
+            let nfkc = EmailNormalizer.nfkc(input)
+            XCTAssertEqual(EmailNormalizer.nfc(nfkc), nfkc,
+                           "NFKC output must already be in NFC for input: \(input)")
+        }
+    }
 }

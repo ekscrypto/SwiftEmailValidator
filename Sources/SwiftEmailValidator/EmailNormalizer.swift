@@ -67,6 +67,16 @@ public enum EmailNormalizer {
     /// normalization. Always run validation on the normalized output, never the other way
     /// round; never assume the output fits the same bounds as the input.
     ///
+    /// ## Compatibility folds that introduce ASCII SPACE
+    /// U+FDFA is the most extreme case but not the only one. Several single-scalar inputs
+    /// fold to ASCII SPACE (U+0020) under NFKC and will then be rejected by the validator
+    /// because SPACE is not in `atext`:
+    /// - `U+00A0` NO-BREAK SPACE → ` `
+    /// - `U+2003` EM SPACE, `U+2002` EN SPACE, and most other Zs-category chars → ` `
+    /// - `U+FDFA` ARABIC LIGATURE SALLALLAHOU ALAYHE WASALLAM → 18 scalars including ` `
+    /// This is a feature, not a bug — homograph spoofing via lookalike spaces collapses to
+    /// the canonical SPACE and is then caught by the validator.
+    ///
     /// ## Quoted-string local parts
     /// NFKC is applied to the whole string, including content *inside* quoted local parts.
     /// Structurally this is safe: the RFC 5321 delimiters — `"` (U+0022), `\` (U+005C), and
@@ -89,10 +99,14 @@ public enum EmailNormalizer {
     ///
     /// ## IDNA2008 interaction (domain part)
     /// IDNA2008 (RFC 5890–5895) is specified around NFC. NFKC may produce domain-label forms
-    /// IDNA2008 treats differently — notably `U+FF0E FULLWIDTH FULL STOP` maps to `.`, which
-    /// can create label boundaries that did not exist in the input. Downstream domain
-    /// validation should be prepared for this; the current `EmailSyntaxValidator` defers
-    /// domain validation to a pluggable validator (default: SwiftPublicSuffixList).
+    /// IDNA2008 treats differently — notably `U+FF0E FULLWIDTH FULL STOP`, `U+3002` IDEOGRAPHIC
+    /// FULL STOP, and `U+FF61` HALFWIDTH IDEOGRAPHIC FULL STOP all fold to `.`, creating label
+    /// boundaries that did not exist in the input. This mirrors UTS#46 *transitional*-mode
+    /// behavior; pure IDNA2008 does not perform that mapping. NFKC may also change a U-label
+    /// such that its Punycode encoding (RFC 3492) no longer matches what the caller expected.
+    /// Downstream domain validation should be prepared for this; the current
+    /// `EmailSyntaxValidator` defers domain validation to a pluggable validator (default:
+    /// SwiftPublicSuffixList).
     ///
     /// - Parameter email: An email address string to normalize.
     /// - Returns: The NFKC-normalized form. Pure ASCII input is returned unchanged.
