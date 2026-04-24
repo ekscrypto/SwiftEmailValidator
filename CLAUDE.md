@@ -79,7 +79,7 @@ SwiftEmailValidator is an RFC-compliant email syntax validator supporting intern
 
 ### Dependencies
 
-- **SwiftPublicSuffixList** (>= 3.1.0): Domain validation against the Public Suffix List. First use incurs 100-900ms initialization delay. Since PSL v3 rejects non-ASCII hostnames, the default `domainValidator` closure runs `PublicSuffixList.ace($0)` before `isUnrestricted(_:)`; `Mailbox.Host.domain(...)` still returns the original user-facing string (only the validator dispatch uses ACE).
+- **SwiftPublicSuffixList** (>= 3.1.0): Domain validation against the Public Suffix List. Since PSL v3 rejects non-ASCII hostnames, the default `domainValidator` closure runs `PublicSuffixList.ace($0)` before `isUnrestricted(_:)`; `Mailbox.Host.domain(...)` still returns the original user-facing string (only the validator dispatch uses ACE).
 
 ### Key Design Decisions
 

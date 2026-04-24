@@ -34,16 +34,6 @@ Then depend on **one or both** library products from your target:
             .product(name: "SwiftEmailValidatorUTS39", package: "SwiftEmailValidator"),
         ])
 
-## Performance Considerations
-
-Due to the high number of entries in the Public Suffix list (>9k), the first email validation may add 100ms to 900ms depending on the device. To avoid this delay affecting user experience, you can pre-load the rules on a background thread soon after launching the app:
-
-    import SwiftPublicSuffixList
-
-    DispatchQueue.global(qos: .utility).async {
-        _ = PublicSuffixRulesRegistry.rules
-    }
-
 ## Public Suffix List
 
 By default, domains are validated against the [Public Suffix List](https://publicsuffix.org) using the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library.
