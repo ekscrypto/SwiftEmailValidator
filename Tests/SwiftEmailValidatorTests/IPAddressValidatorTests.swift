@@ -234,4 +234,42 @@ final class IPAddressValidatorTests: XCTestCase {
         let overlong = String(repeating: "1", count: 46)
         XCTAssertFalse(IPAddressSyntaxValidator.match(overlong))
     }
+
+    // MARK: - RFC 4291 §2.2 case-insensitivity for IPv4-mapped form
+
+    func testIPv4MappedAcceptsUppercaseFFFF() {
+        // RFC 4291 §2.2: hex digits in IPv6 may be written in either upper or lower case.
+        // The IPv4-mapped prefix `::ffff:` must therefore also be accepted as `::FFFF:`,
+        // along with mixed-case variants.
+        let valid: [String] = [
+            "::FFFF:1.2.3.4",
+            "::FFFF:192.168.1.1",
+            "::FfFf:127.0.0.1",
+            "::FFFF:0:1.2.3.4",     // optional `:0{1,4}` group, uppercase
+        ]
+        for addr in valid {
+            XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6(addr),
+                          "\(addr) must be accepted: RFC 4291 §2.2 allows uppercase hex digits")
+        }
+    }
+
+    // MARK: - RFC 3986 §3.2.2 leading-zero rejection in embedded IPv4
+
+    func testIPv6EmbeddedIPv4RejectsLeadingZeros() {
+        // The standalone `_matchIPv4` rejects octets like `001` / `09` (octal-ambiguity
+        // per RFC 3986 §3.2.2). The IPv6-with-embedded-IPv4 path must agree — otherwise
+        // the same dotted-quad gets two different verdicts depending on the host shape.
+        let invalid: [String] = [
+            "::ffff:192.168.001.001",
+            "::ffff:192.168.1.01",
+            "::01.02.03.04",
+            "0:0:0:0:0:ffff:001.002.003.004",       // format 2 + embedded leading zeros
+            "1:2:3:4:5:6:192.168.001.001",          // format 2 path
+            "::1:2:3:4:192.168.001.001",            // ([0-9a-fA-F]:){1,4}: + embedded IPv4
+        ]
+        for addr in invalid {
+            XCTAssertFalse(IPAddressSyntaxValidator.matchIPv6(addr),
+                           "\(addr) must be rejected: leading zeros in embedded IPv4 octet (RFC 3986 §3.2.2)")
+        }
+    }
 }
