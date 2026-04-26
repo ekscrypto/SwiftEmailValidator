@@ -63,7 +63,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     
     func testQuotedTextLocalPart() {
         XCTAssertEqual(baseMailboxLocalPartValidation(#""Mickey Mouse"@disney.com"#), .quotedString("Mickey Mouse"), "Spaces are allowed in quoted local part")
-        XCTAssertEqual(baseMailboxLocalPartValidation(#"""@site.com"#), .quotedString(""), "DQUOTE *QcontentSMTP DQUOTE implies empty quoted strings are allowed for local part")
+        XCTAssertNil(baseMailboxLocalPartValidation(#"""@site.com"#), "Empty quoted local part rejected for parity with dot-atom (RFC 5321 §3.3 — empty local-part not deliverable)")
         XCTAssertEqual(baseMailboxLocalPartValidation("\" \"@site.com"), .quotedString(" "), "Spaces are allowed in quoted local part")
         XCTAssertEqual(baseMailboxLocalPartValidation("\"!\"@site.com"), .quotedString("!"), "! are allowed in quoted local part")
         XCTAssertEqual(baseMailboxLocalPartValidation("\"#\"@site.com"), .quotedString("#"), "# are allowed in quoted local part")
@@ -103,7 +103,18 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         XCTAssertNil(baseMailboxLocalPartValidation(#""\"@site.com"#),"The double-quote following the escape would have been escaped so the @site.com would still be part of the local part and no closing double-quotes would be found")
         XCTAssertNil(baseMailboxLocalPartValidation(#""email@notadomain.com""#), "Entire email address is within double-quotes so the whole thing would be considered the local part with no @ domain after the quotes this should be rejected")
     }
-    
+
+    func testQuotedLocalPartParityWithDotAtomRejectsEmpty() {
+        // Pins parity with extractDotAtom's `dotAtom.count > 0` enforcement.
+        // The strict ABNF `*QcontentSMTP` permits zero content, but accepting `""@x.com`
+        // while `extractDotAtom` rejects an empty atom (and `@x.com` is rejected outright)
+        // is unprincipled. RFC 5321 §3.3 notes empty local-part is not deliverable.
+        XCTAssertNil(baseMailboxLocalPartValidation(#"""@site.com"#), ".ascii: empty quoted local part must be rejected")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: #"""@site.com"#, compatibility: .unicode), ".unicode: empty quoted local part must be rejected")
+        // Sanity: a single escaped scalar still parses (cleaned text non-empty).
+        XCTAssertEqual(baseMailboxLocalPartValidation(#""\\"@site.com"#), .quotedString("\\"), "Single escaped backslash remains valid (cleaned text is one scalar)")
+    }
+
     func testEmailWithIPv4AddressLiteral() {
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: "Santa.Claus@[127.0.0.1]", allowAddressLiteral: false))
         XCTAssertEqual(EmailSyntaxValidator.mailbox(from: "Santa.Claus@[127.0.0.1]", allowAddressLiteral: true)?.localPart, .dotAtom("Santa.Claus"), "When allowing address literals, email addresses should be valid if they specific @[<IPv4 Address>]")

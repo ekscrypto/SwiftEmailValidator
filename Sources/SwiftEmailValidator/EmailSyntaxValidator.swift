@@ -637,7 +637,12 @@ public final class EmailSyntaxValidator {
             }
             
             if expectingAt {
+                // Reject empty quoted local-part (`""@…`) for parity with `extractDotAtom`'s
+                // `dotAtom.count > 0` check. RFC 5321 §3.3 notes the empty local-part is "not
+                // generally treated as a deliverable address"; the strict ABNF `*QcontentSMTP`
+                // permits it, but allowing `""@x.com` while rejecting `@x.com` is unprincipled.
                 guard character == "@",
+                      !cleanedText.isEmpty,
                       integralText.utf8.count <= 64 else {
                     return nil
                 }
