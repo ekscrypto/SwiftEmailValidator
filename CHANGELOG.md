@@ -5,6 +5,160 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-04-26
+
+### Security
+
+This release closes a series of Unicode and RFC compliance gaps surfaced by
+adversarial review of 1.6.0. All findings reduce permissiveness; no API
+surface changed. Users on 1.6.0 should upgrade.
+
+#### Default_Ignorable spoofing closure (RFC 5892 §2.6)
+
+`CharacterSet.letters` on Darwin admits a number of `Default_Ignorable`
+scalars that produce no glyph and are DISALLOWED in IDNA2008. Several
+slipped through both the local-part and domain-label gates in 1.6.0:
+
+- **Domain label path** now rejects `U+3164` HANGUL FILLER, `U+FE0F`
+  VS-16, `U+E0100` VS-17 (SSP), `U+180B`–`U+180F` MONGOLIAN FREE
+  VARIATION SELECTORS, `U+115F`/`U+1160` HANGUL CHOSEONG/JUNGSEONG
+  FILLERS, `U+17B4`–`U+17B5` KHMER VOWEL INHERENT, and `U+FFA0`
+  HALFWIDTH HANGUL FILLER. PVALID combining marks (e.g. `U+05B0`
+  HEBREW POINT SHEVA) remain accepted; a canary test pins this.
+- **Local-part path** now rejects `U+034F` COMBINING GRAPHEME JOINER,
+  the SMP `U+1BCA0`–`U+1BCA3` SHORTHAND FORMAT controls, the
+  `U+1D173`–`U+1D17A` MUSICAL SYMBOL formatting controls, and the
+  reserved `U+FFF0`–`U+FFF8` block.
+- **Leading combining marks rejected.** A label starting with an
+  Mn/Mc/Me scalar (e.g. lone `U+0301`) is now rejected per-label in
+  `extractDotAtom`. Mid-label combining marks remain accepted so
+  legitimate diacritics (`a` + `U+0301` = `á`) still validate.
+
+#### Validator behaviour fixes
+
+- **Empty quoted local part rejected.** `""@x.com` is now rejected for
+  parity with the dot-atom path. RFC 5321 §3.3 notes the empty
+  local-part is "not generally treated as a deliverable address".
+- **`.arpa` rejected by `TLDDomainValidator`.** RFC 3172 reserves the
+  `.arpa` zone for DNS infrastructure (`in-addr.arpa`, `ip6.arpa`,
+  `iris.arpa`); no MTA accepts mail there. `home.arpa` (RFC 8375)
+  remains in `specialUseDomains` as defensive redundancy.
+- **`TLDDomainValidator.isPubliclyDeliverable(_:)` two-layer split.**
+  Direct callers passing hostnames with surrounding whitespace or
+  IDNA-equivalent dot variants (`U+3002`, `U+FF0E`, `U+FF61`) used to
+  receive an accept response because the function only inspected the
+  rightmost ASCII-`.`-split label. The public form now trims and folds
+  before dispatching to a raw `_isPubliclyDeliverable(_:)` worker.
+  `EmailSyntaxValidator`'s LDH gate already protected the end-to-end
+  pipeline; this hardens the `TLDDomainValidator` API in isolation.
+- **IPv6 regex case + leading-zero gaps.** `_matchIPv6` accepted
+  embedded-IPv4 octets with leading zeros (e.g. `192.168.001.001`)
+  even though `_matchIPv4` correctly rejects them — same input got
+  opposite verdicts depending on host shape (RFC 3986 §3.2.2). The
+  IPv4-mapped prefix was also hardcoded lowercase `ffff`, rejecting
+  `[IPv6:::FFFF:1.2.3.4]` (RFC 4291 §2.2 case-insensitivity). Both
+  fixed; six octet patterns and the `[fF]{4}` prefix updated.
+
+#### RFC 2047 encoder/decoder hardening
+
+- **75-octet cap enforced on encoder output.** The decoder rejected
+  over-length encoded-words but the encoder did not, so long Unicode
+  inputs auto-encoded then re-decoded silently failed to round-trip.
+  `encode()` now returns `nil` if the assembled `=?utf-8?b?<base64>?=`
+  exceeds 75 chars (≈47 UTF-8 bytes), restoring encode→decode symmetry.
+- **Base64 residue==1 rejected explicitly.** The padding table emitted
+  illegal `===` for 1-byte residues; Foundation rejected the result
+  by accident. Now `encode()` self-checks before relying on Foundation.
+- **Encoded-text grammar tightened to `1*<text>`** per RFC 2047 §2.
+  The third regex group changed from `(.*)` to `([^? ]+)`, rejecting
+  empty payloads (`=?utf-8?b??=`) and literal `?` in encoded-text
+  (`=?iso-8859-1?q?ab?cd?=`).
+
+#### UTS #39 hardening
+
+- **§5.2 Moderately Restrictive: second-script pool restricted to UAX #31
+  Recommended scripts.** 1.6.0 enumerated all 174 scripts as candidate
+  partners with Latin (excluding only Cyrl/Grek/Latn/Common/Inherited),
+  so with `rejectRestrictedIdentifiers: false` Latin + Phoenician /
+  Limbu / etc. were accepted. Replaced with a precomputed
+  `moderatelyRestrictiveCandidateIDs` set built from the 26 Recommended
+  scripts (minus Latn/Cyrl/Grek/Common/Inherited; Cherokee Limited_Use
+  also excluded).
+- **§5.1 Augmented_Script_Set applied in Single Script analysis.**
+  `ScriptAnalyzer.isSingleScript` and `stringCompatible` previously used
+  raw `Script_Extensions(X)`. Without §5.1 augmentation, pure-Japanese
+  (Han + Hira + Kana, no Latin), pure-Korean (Han + Hang),
+  pure-Chinese-with-Bopomofo (Han + Bopo), and even Hira + Kana strings
+  were misclassified as multi-script at `.singleScript`. Highly
+  Restrictive whitelist papered over Latin-included combos but not the
+  no-Latin variants. Added `augmentedScriptSet(of:)` synthesizing
+  virtual Hanb/Jpan/Kore IDs at `0x10000+` (UCD doesn't ship them as
+  `Script_Extensions` values).
+
+### Changed
+
+- **`TLDDomainValidator` two-layer API.** Public
+  `isPubliclyDeliverable(_:)` trims surrounding whitespace and folds
+  `U+3002` / `U+FF0E` / `U+FF61` to ASCII `.` before dispatching to
+  `_isPubliclyDeliverable(_:)`. The worker is `public` (with
+  underscore-prefix marking module-internal use) only because Swift
+  requires default-arg symbols of public functions to be public.
+
+### Documentation
+
+- **`.asciiWithUnicodeExtension` mode** documented as a project
+  convention (whole-address RFC 2047 wrap), not standards-conformant
+  SMTPUTF8 — RFC 2047 §5 forbids encoded-words inside `addr-spec`.
+  Steers callers needing arbitrary-MTA interop to `.unicode` mode
+  (RFC 6531).
+- **`domainLabelCharacterSet`** documented as a coarse Letter+digit
+  gate, not RFC 5891 §4.2.3.2 PVALID enforcement; strict IDNA2008 is
+  delegated to the `domainValidator` closure.
+- **UTS #39 docstrings** corrected: the `RestrictionLevel.highlyRestrictive`
+  combos now match §5.2.2 Table 1 (Japanese, Korean, Chinese — not the
+  prior incorrect "Latin + Han, Latin + Han + Hiragana + Katakana,
+  Latin + Han + Hangul + Bopomofo"). Eight other references to
+  non-existent §5.2.1/§5.2.2/§5.2.3 anchors switched to §5.2's
+  named-bullet form.
+- **UTS #39 out-of-scope sections documented** in the `UTS39`
+  namespace docstring: §5.6.1 Whole-Script Confusables, §5.7.1
+  Mixed-Numbers, and `Identifier_Type=Not_NFKC` pre-normalization
+  (with caller workaround for the NFKC case).
+- **EmailSyntaxValidator domain-length comment** rewritten to cite
+  RFC 5321 §4.5.3.1.2 as the headline (255-octet wire cap) and explain
+  how 253 is the derived presentation-form ceiling. Cap value
+  (≤253) unchanged.
+
+### Tooling
+
+- **`Tools/generate_tlds.py` switched to PyPI `idna`** (IDNA2008 +
+  RFC 3492 Punycode) from stdlib `encodings.idna` (IDNA2003,
+  deprecation-flagged). Generator runs in maintainer/CI hands so the
+  new pip dependency has zero consumer impact. The bundled
+  `Generated/IANATLDs.swift` is byte-identical because all 151 IDN
+  TLDs in the IANA root zone round-trip cleanly under both modes
+  today, and the SHA-256 short-circuit detects no-op runs. The
+  nightly workflow installs `idna` before invoking the script.
+
+### Tests
+
+- Test count grew from 272 to 299 (all passing).
+- New coverage includes: Default_Ignorable rejection across BMP +
+  SMP + combining-mark-position vectors, leading combining marks,
+  IPv6 case-insensitivity and embedded-IPv4 leading zeros, RFC 6874
+  percent-encoded zone IDs, IDN case-fold (`example.БЕЛ`), RFC 2047
+  encoder structural shape and the 47/48-byte boundary,
+  General-address-literal rejection (RFC 5321 §4.1.3), single-label
+  host rejection through default validator wiring, and IPv4-mapped
+  IPv6 literals end-to-end.
+- Multiple weak assertions tightened across the suite (positive
+  equality replacing `XCTAssertNotEqual`, wire-form pins for RFC 2047
+  round-trips, `XCTAssertEqual` replacing one-way ASCII⇒Unicode
+  invariant).
+- DemoApp test corpus extended with 34 Default_Ignorable spoofing
+  cases (33 negative + 1 PVALID canary). `swift run EmailBench`
+  picks them up via the existing symlink.
+
 ## [1.6.0] - 2026-04-25
 
 ### Removed
