@@ -9,15 +9,11 @@
 //  with `Transitional_Processing=false` (toAsciiN), and ToASCII with
 //  `Transitional_Processing=true` (toAsciiT).
 //
-//  Status codes whose flags are off in our default configuration are
-//  filtered out before comparison:
-//
-//   - `Bn` (Bidi rule) — `CheckBidi` not implemented.
-//   - `Cn` (CONTEXTJ)  — `CheckJoiners` not implemented.
-//
-//  All other codes (`Pn`, `Vn`, `An`, `Xn`, `U1`) remain in scope and a
-//  row carrying any of them must be rejected by the implementation
-//  (`nil` return).
+//  All status code families (`Pn`, `Vn`, `An`, `Bn`, `Cn`, `Xn`, `U1`)
+//  are in scope: any row carrying any of them must be rejected by the
+//  implementation (`nil` return). `Bn` and `Cn` are specifically the
+//  Bidi rule (RFC 5893) and ContextJ (RFC 5892 §A.1/A.2) checks, both
+//  enforced by default in this implementation.
 //
 //  Source file is bundled as a test resource and pinned to the Unicode
 //  version embedded in `IdnaMappingData.unicodeVersion`. Refresh both
@@ -28,10 +24,6 @@ import XCTest
 @testable import SwiftEmailValidatorIDNA
 
 final class IdnaTestV2DriverTests: XCTestCase {
-
-    /// Codes our default configuration does not enforce.
-    /// Stripped from expected status sets before comparison.
-    private static let ignoredStatusPrefixes: [Character] = ["B", "C"]
 
     func testIdnaTestV2Conformance() throws {
         let url = try XCTUnwrap(
@@ -123,12 +115,8 @@ final class IdnaTestV2DriverTests: XCTestCase {
         failures: inout [String]
     ) -> Int {
         let (expected, expectedStatus) = row.expectation(for: op)
-        let filtered = expectedStatus.filter { code in
-            guard let first = code.first else { return true }
-            return !ignoredStatusPrefixes.contains(first)
-        }
 
-        if filtered.isEmpty {
+        if expectedStatus.isEmpty {
             // Spec says success — implementation must produce `expected`.
             if actual != expected {
                 failures.append(
@@ -136,13 +124,13 @@ final class IdnaTestV2DriverTests: XCTestCase {
                     + "expected \(escape(expected)), got \(escape(actual ?? "<nil>"))")
             }
         } else {
-            // Filtered status is non-empty → spec error path. Implementation
-            // must reject (`nil`). A non-nil result here means we silently
-            // accepted an input that should fail.
+            // Spec error path. Implementation must reject (`nil`). A
+            // non-nil result here means we silently accepted an input
+            // that should fail.
             if actual != nil {
                 failures.append(
                     "L\(lineNo) \(op.label) source=\(escape(row.source)) "
-                    + "expected error \(filtered) but got \(escape(actual ?? "<nil>"))")
+                    + "expected error \(expectedStatus) but got \(escape(actual ?? "<nil>"))")
             }
         }
         return 1

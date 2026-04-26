@@ -2618,7 +2618,7 @@ enum IdnaMappingData {
         1, 1, 0, 0, 0, 0, 0, 0, 0,
     ]
 
-    /// Concatenated scalar payloads referenced by `rangeMappingOffset`.
+    /// 5492 scalar payloads referenced by `rangeMappingOffset`.
     static let mappingsFlat: [UInt32] = [
         0x000061, 0x000062, 0x000063, 0x000064, 0x000065, 0x000066, 0x000067, 0x000068, 0x000069, 0x00006A, 0x00006B, 0x00006C,
         0x00006D, 0x00006E, 0x00006F, 0x000070, 0x000071, 0x000072, 0x000073, 0x000074, 0x000075, 0x000076, 0x000077, 0x000078,

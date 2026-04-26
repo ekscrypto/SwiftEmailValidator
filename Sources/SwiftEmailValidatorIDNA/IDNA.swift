@@ -23,38 +23,27 @@ import SwiftEmailValidator
 /// Direct use without the validator integration is supported via
 /// ``IDNA/toAscii(_:options:)`` and ``IDNA/toUnicode(_:options:)``.
 ///
-/// ## Scope and intentional gaps
+/// ## Scope
 ///
-/// This implementation covers the subset of UTS #46 needed to make
-/// SwiftEmailValidator's host-validation accept-set match what real DNS
-/// resolvers and SMTP clients see post-IDNA. Specifically:
+/// This implementation covers the subset of UTS #46 needed for
+/// security-grade host validation. Specifically:
 ///
 ///  * §4 step 1 (Map) — full IDNA Mapping Table, current Unicode version.
 ///  * §4 step 2 (Normalize) — NFC via Foundation.
 ///  * §4 step 3 (Break into labels) — split on `U+002E`.
 ///  * §4 step 4 (Validity) — NFC, leading combining mark rejection,
-///    `CheckHyphens` (V2), and per-scalar status check (V4/V5).
+///    `CheckHyphens` (V2), per-scalar status check (V4/V5),
+///    `CheckBidi` (V6, RFC 5893 §2), and `CheckJoiners` (V7,
+///    RFC 5892 §A.1 ZWNJ + §A.2 ZWJ).
 ///  * §4 step 5 (ToASCII) — RFC 3492 Punycode for any non-ASCII U-label,
 ///    with an RFC 5890 §2.3.1 63-octet cap on the resulting A-label.
 ///  * `Transitional_Processing` toggle (default off — matches modern
 ///    browsers and the post-2016 spec recommendation).
 ///
-/// Deliberately **not** implemented in this initial release:
-///
-///  * **Bidi rule** (RFC 5893 §2). Mixed-direction labels are not detected.
-///    Most SMTP/DNS deployments do not enforce Bidi either, so the practical
-///    interoperability gap is narrow — but adding this requires bundling
-///    Bidi_Class data and is deferred.
-///  * **CONTEXTJ / CONTEXTO** rules (RFC 5892 §A.1/A.2). ZWJ/ZWNJ usage in
-///    sensitive joining contexts and Greek-keraia / Hebrew-geresh / Hebrew-
-///    gershayim / Katakana-middle-dot context rules are not enforced. ZWJ
-///    and ZWNJ are still treated as `valid` per the deviation-as-valid rule
-///    of nontransitional processing.
-///  * **`CheckBidi`** option. Always treated as off.
-///
-/// Callers needing those checks must layer their own validation on top of
-/// ``IDNA/toAscii(_:options:)`` output, or via the `domainValidator`
-/// closure chain.
+/// CONTEXTO (RFC 5892 §A.3-§A.7) is **not** implemented; UTS #46 does not
+/// require it. Callers that need CONTEXTO (e.g. Greek-keraia, Katakana-
+/// middle-dot, Arabic-Indic digit-mixing rules) must layer their own
+/// validation on top of ``IDNA/toAscii(_:options:)``.
 public enum IDNA {
 
     /// Configuration for UTS #46 processing.
@@ -97,20 +86,44 @@ public enum IDNA {
         ///
         /// Disable to use ``IDNA/toAscii(_:options:)`` purely as a
         /// mapping/normalization step without DNS-layer length enforcement.
+        /// Has no effect on ``IDNA/toUnicode(_:options:)`` — UTS #46 does
+        /// not apply DNS length checks during ToUnicode.
         ///
         /// Default `true`.
         public var verifyDnsLength: Bool
+
+        /// `CheckBidi` per UTS #46 §4 V6: enforce the RFC 5893 §2 Bidi
+        /// rule on every "Bidi domain name label" (any label containing a
+        /// scalar with Bidi_Class R, AL, or AN). Pure-LTR labels are
+        /// exempt. Catches mixed-direction labels which are a known
+        /// homograph attack vector.
+        ///
+        /// Default `true`.
+        public var checkBidi: Bool
+
+        /// `CheckJoiners` per UTS #46 §4 V7: enforce the RFC 5892 §A.1
+        /// (ZWNJ) and §A.2 (ZWJ) CONTEXTJ rules. Catches ZWJ/ZWNJ used
+        /// outside their legitimate joining contexts, another homograph
+        /// attack vector. Legitimate use in Persian, Indic, etc. scripts
+        /// is preserved.
+        ///
+        /// Default `true`.
+        public var checkJoiners: Bool
 
         public init(
             transitional: Bool = false,
             checkHyphens: Bool = true,
             useSTD3ASCIIRules: Bool = true,
-            verifyDnsLength: Bool = true
+            verifyDnsLength: Bool = true,
+            checkBidi: Bool = true,
+            checkJoiners: Bool = true
         ) {
             self.transitional = transitional
             self.checkHyphens = checkHyphens
             self.useSTD3ASCIIRules = useSTD3ASCIIRules
             self.verifyDnsLength = verifyDnsLength
+            self.checkBidi = checkBidi
+            self.checkJoiners = checkJoiners
         }
     }
 
@@ -130,7 +143,9 @@ public enum IDNA {
             useSTD3ASCIIRules: options.useSTD3ASCIIRules,
             checkHyphens: options.checkHyphens,
             transitional: options.transitional,
-            verifyDnsLength: options.verifyDnsLength)
+            verifyDnsLength: options.verifyDnsLength,
+            checkBidi: options.checkBidi,
+            checkJoiners: options.checkJoiners)
     }
 
     /// Apply UTS #46 §4 Processing without forcing ToASCII (UTS #46 ToUnicode).
@@ -156,17 +171,29 @@ public enum IDNA {
 
         let labels = IdnaProcessing.splitLabels(normalized)
 
-        var out: [String] = []
-        out.reserveCapacity(labels.count)
+        // Pass 1: decode xn-- labels, handle empty labels, detect whether
+        // the domain is a Bidi domain (RFC 5893 §1.4 trigger).
+        struct Stage {
+            let u: String
+            let wasDecoded: Bool
+            let isPreservedEmpty: Bool
+        }
+        var stages: [Stage] = []
+        stages.reserveCapacity(labels.count)
+        var domainIsBidi = false
+
         for (idx, label) in labels.enumerated() {
             if label.isEmpty {
-                if idx == labels.count - 1 { out.append(""); continue }
+                if idx == labels.count - 1 {
+                    stages.append(Stage(u: "", wasDecoded: false, isPreservedEmpty: true))
+                    continue
+                }
                 return nil
             }
             var u = label
             // Decoded xn-- labels validate as Nontransitional per UTS #46
             // §4 step 4 — see note in IdnaProcessing.toAscii.
-            let wasDecoded: Bool
+            var wasDecoded = false
             if u.lowercased().hasPrefix("xn--") {
                 let body = String(u.dropFirst(4))
                 guard let decoded = Punycode.decode(body) else { return nil }
@@ -174,16 +201,29 @@ public enum IDNA {
                 if decoded.unicodeScalars.allSatisfy({ $0.isASCII }) { return nil }
                 u = decoded
                 wasDecoded = true
-            } else {
-                wasDecoded = false
+            }
+            if BidiRule.labelHasRTL(u) { domainIsBidi = true }
+            stages.append(Stage(u: u, wasDecoded: wasDecoded, isPreservedEmpty: false))
+        }
+
+        // Pass 2: validate each U-label with the now-known `domainIsBidi`.
+        var out: [String] = []
+        out.reserveCapacity(stages.count)
+        for stage in stages {
+            if stage.isPreservedEmpty {
+                out.append("")
+                continue
             }
             guard IdnaProcessing.validateLabel(
-                u,
+                stage.u,
                 checkHyphens: options.checkHyphens,
                 useSTD3ASCIIRules: options.useSTD3ASCIIRules,
-                transitional: wasDecoded ? false : options.transitional
+                transitional: stage.wasDecoded ? false : options.transitional,
+                checkBidi: options.checkBidi,
+                checkJoiners: options.checkJoiners,
+                domainIsBidi: domainIsBidi
             ) else { return nil }
-            out.append(u)
+            out.append(stage.u)
         }
         return out.joined(separator: ".")
     }

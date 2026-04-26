@@ -84,21 +84,24 @@ enum IdnaProcessing {
     /// caller), each label must satisfy:
     ///
     ///  - non-empty
-    ///  - in NFC
-    ///  - if `checkHyphens`: no leading/trailing hyphen; no `--` at positions 3-4
-    ///  - does not begin with a combining mark (Mn/Mc/Me)
-    ///  - every scalar has status `valid` (or `deviation` in nontransitional)
+    ///  - in NFC (V1)
+    ///  - if `checkHyphens`: no leading/trailing hyphen; no `--` at positions 3-4 (V2)
+    ///  - does not begin with a combining mark (Mn/Mc/Me) (V3)
+    ///  - every scalar has status `valid` (or `deviation` in nontransitional) (V4/V5)
     ///  - if `useSTD3ASCIIRules`: every ASCII scalar is in the LDH set
     ///    `[A-Za-z0-9-]` (the modern preprocessed IDNA Mapping Table marks
     ///    non-LDH ASCII as `valid` with `NV8`, so the STD3 rule must be
     ///    enforced separately here)
-    ///
-    /// Bidi and CONTEXTJ checks are intentionally not run.
+    ///  - if `checkBidi`: RFC 5893 §2 Bidi rule on Bidi domain name labels (V6)
+    ///  - if `checkJoiners`: RFC 5892 §A.1 (ZWNJ) and §A.2 (ZWJ) CONTEXTJ (V7)
     static func validateLabel(
         _ label: String,
         checkHyphens: Bool,
         useSTD3ASCIIRules: Bool,
-        transitional: Bool
+        transitional: Bool,
+        checkBidi: Bool,
+        checkJoiners: Bool,
+        domainIsBidi: Bool
     ) -> Bool {
         if label.isEmpty { return false }
 
@@ -150,6 +153,21 @@ enum IdnaProcessing {
             }
         }
 
+        // V7: ContextJ — ZWNJ/ZWJ context (RFC 5892 §A.1/A.2). Run before
+        // Bidi so that mixed-failure labels report ZWJ/ZWNJ misuse first;
+        // ordering doesn't affect correctness since both must pass.
+        if checkJoiners && !ContextJ.validate(label) {
+            return false
+        }
+
+        // V6: Bidi rule (RFC 5893 §2). Per §1.4, the rule fires for every
+        // label of a domain in which *any* label contains an R/AL/AN
+        // scalar — pure-LTR labels in a Bidi domain are still gated by
+        // the rule. The caller computes `domainIsBidi` after splitting.
+        if checkBidi && domainIsBidi && !BidiRule.validate(label) {
+            return false
+        }
+
         return true
     }
 
@@ -192,7 +210,9 @@ enum IdnaProcessing {
         useSTD3ASCIIRules: Bool,
         checkHyphens: Bool,
         transitional: Bool,
-        verifyDnsLength: Bool
+        verifyDnsLength: Bool,
+        checkBidi: Bool,
+        checkJoiners: Bool
     ) -> String? {
         guard let mapped = applyMapping(
             input,
@@ -207,8 +227,17 @@ enum IdnaProcessing {
         // is off.
         let labels = splitLabels(normalized)
 
-        var asciiLabels: [String] = []
-        asciiLabels.reserveCapacity(labels.count)
+        // Pass 1: decode any `xn--` labels to U-label form, handle empty
+        // labels, and detect whether any label contains R/AL/AN — the
+        // RFC 5893 §1.4 trigger for whole-domain Bidi rule application.
+        struct Stage {
+            let u: String
+            let wasDecoded: Bool
+            let isPreservedEmpty: Bool
+        }
+        var stages: [Stage] = []
+        stages.reserveCapacity(labels.count)
+        var domainIsBidi = false
 
         for (idx, label) in labels.enumerated() {
             // Empty-label handling per UTS #46 §4.2 ToASCII step 5:
@@ -219,13 +248,14 @@ enum IdnaProcessing {
             //     including the trailing root.
             if label.isEmpty {
                 if idx == labels.count - 1 && !verifyDnsLength {
-                    asciiLabels.append("")
+                    stages.append(Stage(u: "", wasDecoded: false, isPreservedEmpty: true))
                     continue
                 }
                 return nil
             }
 
             var u = label
+            var wasDecoded = false
 
             // Step 4 prelude: if label starts with `xn--`, Punycode-decode.
             // Per UTS #46 §4 step 4, decoded labels are always validated
@@ -242,20 +272,32 @@ enum IdnaProcessing {
                 if decoded.isEmpty { return nil }
                 if decoded.unicodeScalars.allSatisfy({ $0.isASCII }) { return nil }
                 u = decoded
-                guard validateLabel(
-                    u,
-                    checkHyphens: checkHyphens,
-                    useSTD3ASCIIRules: useSTD3ASCIIRules,
-                    transitional: false
-                ) else { return nil }
-            } else {
-                guard validateLabel(
-                    u,
-                    checkHyphens: checkHyphens,
-                    useSTD3ASCIIRules: useSTD3ASCIIRules,
-                    transitional: transitional
-                ) else { return nil }
+                wasDecoded = true
             }
+
+            if BidiRule.labelHasRTL(u) { domainIsBidi = true }
+            stages.append(Stage(u: u, wasDecoded: wasDecoded, isPreservedEmpty: false))
+        }
+
+        // Pass 2: validate each U-label with the now-known `domainIsBidi`
+        // flag, then encode non-ASCII labels back to A-label form.
+        var asciiLabels: [String] = []
+        asciiLabels.reserveCapacity(stages.count)
+        for stage in stages {
+            if stage.isPreservedEmpty {
+                asciiLabels.append("")
+                continue
+            }
+            let u = stage.u
+            guard validateLabel(
+                u,
+                checkHyphens: checkHyphens,
+                useSTD3ASCIIRules: useSTD3ASCIIRules,
+                transitional: stage.wasDecoded ? false : transitional,
+                checkBidi: checkBidi,
+                checkJoiners: checkJoiners,
+                domainIsBidi: domainIsBidi
+            ) else { return nil }
 
             // Step 5: encode to ASCII.
             if u.unicodeScalars.allSatisfy({ $0.isASCII }) {

@@ -12,11 +12,14 @@ cd "$DEST"
 URLS=(
     "https://www.unicode.org/Public/idna/latest/IdnaMappingTable.txt"
     "https://www.unicode.org/Public/idna/latest/IdnaTestV2.txt"
+    "https://www.unicode.org/Public/UCD/latest/ucd/extracted/DerivedBidiClass.txt"
+    "https://www.unicode.org/Public/UCD/latest/ucd/extracted/DerivedJoiningType.txt"
+    "https://www.unicode.org/Public/UCD/latest/ucd/UnicodeData.txt"
 )
 
 for url in "${URLS[@]}"; do
     name="$(basename "$url")"
-    echo "fetching $name…"
+    echo "fetching ${name}..."
     curl -sSL -o "$name" "$url"
 done
 
