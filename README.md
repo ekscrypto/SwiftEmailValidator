@@ -647,27 +647,28 @@ isolates each library's accuracy against the standards **it claims to
 implement** — no penalty for not shipping RFC 6531 if it never claimed
 RFC 6531.
 
-| Library | In-scope passed | In-scope failed | Out-of-scope | In-scope accuracy |
-|---|---:|---:|---:|---:|
-| SwiftEmailValidator (ASCII) | 223 | 0 | 20 | **100.0%** |
-| SwiftEmailValidator (ASCII + RFC 2047) | 235 | 0 | 8 | **100.0%** |
-| SwiftEmailValidator (Unicode) | 231 | 0 | 12 | **100.0%** |
-| evanrobertson/EmailValidator (ASCII) | 130 | 4 | 107 | 97.0% |
-| evanrobertson/EmailValidator (international) | 136 | 3 | 99 | 97.8% |
-| bdolewski/SwiftEmailValidator | 95 | 3 | 145 | 96.9% |
-| igorrendulic/MimeEmailParser | 125 | 29 | 87 | 81.2% |
-| jwelton/EmailValidator (NSDataDetector) | 0 | 0 | 243 | n/a³ |
+| Library | In-scope passed | In-scope failed | Out-of-scope | In-scope accuracy | Modern accuracy⁴ |
+|---|---:|---:|---:|---:|---:|
+| SwiftEmailValidator (ASCII) | 223 | 0 | 20 | **100.0%** | 95.5% |
+| SwiftEmailValidator (ASCII + RFC 2047) | 235 | 0 | 8 | **100.0%** | 96.7% |
+| SwiftEmailValidator (Unicode) | 231 | 0 | 12 | **100.0%** | **100.0%** |
+| evanrobertson/EmailValidator (ASCII) | 130 | 4 | 107 | 97.0% | 84.2% |
+| evanrobertson/EmailValidator (international) | 136 | 3 | 99 | 97.8% | 63.4% |
+| bdolewski/SwiftEmailValidator | 95 | 3 | 145 | 96.9% | 84.8% |
+| igorrendulic/MimeEmailParser | 125 | 29 | 87 | 81.2% | 81.7% |
+| jwelton/EmailValidator (NSDataDetector) | 0 | 0 | 243 | n/a³ | 56.8% |
 
 ³ NSDataDetector targets no documented RFC, so no cases are graded
-  in-scope. Its 56.8% headline above is a reference-mode comparison only.
+  in-scope. Its `Modern accuracy` is a reference-mode comparison only.
 
-The headline 243-case score and the within-declared-scope score answer
-different questions. The first asks "how does this library compare to a
-modern, RFC-current email validator?" — the second asks "given what this
-library claims to implement, how reliable is it?" Both are useful: a high
-in-scope score with narrow claims tells you the library is solid within
-its lane; a low headline score with the same narrow claims tells you the
-lane itself may be too narrow for current Internet mail.
+⁴ `Modern accuracy` re-states the headline 243-case score (passed / (passed
+  + failed), skipped excluded) so the two views sit side-by-side. The
+  `In-scope accuracy` column answers "given what this library claims to
+  implement, how reliable is it?" while `Modern accuracy` answers "how
+  much of a modern, RFC-current email validator does it actually cover?".
+  A library can have a high in-scope score with a low modern score — that
+  means it is solid within its lane, but the lane itself is narrow for
+  current Internet mail.
 
 ### Inputs that crash competitor libraries
 

@@ -307,19 +307,21 @@ numerator and denominator. This isolates each library's performance against the 
 **it claims to implement** — separate from the headline 243-case score, which grades against
 a modern-validator superset.
 
-| Library | In-scope passed | In-scope failed | Out-of-scope | In-scope accuracy |
-|---|---:|---:|---:|---:|
+| Library | In-scope passed | In-scope failed | Out-of-scope | In-scope accuracy | Modern accuracy⁴ |
+|---|---:|---:|---:|---:|---:|
 """)
 for r in reports {
-    let pct = r.claimedCapabilities.isEmpty
+    let inScopePct = r.claimedCapabilities.isEmpty
         ? "n/a³"
         : String(format: "%.1f%%", r.inScopeAccuracy * 100)
-    print("| \(r.name) | \(r.inScopePassed) | \(r.inScopeFailed) | \(r.outOfScope) | \(pct) |")
+    let modernPct = String(format: "%.1f%%", r.accuracy * 100)
+    print("| \(r.name) | \(r.inScopePassed) | \(r.inScopeFailed) | \(r.outOfScope) | \(inScopePct) | \(modernPct) |")
 }
 let anyEmpty = reports.contains { $0.claimedCapabilities.isEmpty }
 if anyEmpty {
     print("\n³ Library declares no specific RFC target, so no test cases are graded as in-scope.")
 }
+print("⁴ Modern accuracy = passed / (passed + failed) against the full 243-case modern-validator superset (same denominator as the headline table). Skipped crash-cases are excluded.")
 print("")
 
 let totalSkipped = reports.reduce(0) { $0 + $1.skipped }
