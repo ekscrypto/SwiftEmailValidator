@@ -3,7 +3,7 @@
 # SwiftEmailValidator
 
 A Swift implementation of an international email address syntax validator based on RFC822, RFC2047, RFC5321, RFC5322, RFC6531, RFC6532 and UTS #39.
-Since email addresses are local @ remote the validator also includes `IPAddressSyntaxValidator` and a built-in `TLDDomainValidator` (IANA root zone + IETF special-use blocklist).
+Since email addresses are local @ remote the validator also includes `IPAddressSyntaxValidator` and a built-in `TLDDomainValidator` whose default policy implements the IETF Special-Use Domain Names registry: `.arpa` (RFC 3172), `.test` / `.example` / `.invalid` / `.localhost` (RFC 6761), `.local` (RFC 6762), `.onion` (RFC 7686), `home.arpa` (RFC 8375), and `.alt` (RFC 9476). See [Reference Documents](#reference-documents) for the full RFC list.
 
 This Swift Package does not require an Internet connection at runtime and has **no third-party dependencies**. Default domain validation is built in (see [Domain validation](#domain-validation) below).
 
@@ -642,6 +642,8 @@ the harness yourself to verify or experiment.
 
 ## Reference Documents
 
+### Email syntax & internationalization
+
 RFC822 - STANDARD FOR THE FORMAT OF ARPA INTERNET TEXT MESSAGES
 https://datatracker.ietf.org/doc/html/rfc822
 
@@ -665,3 +667,23 @@ https://datatracker.ietf.org/doc/html/rfc6532
 
 UTS #39 - Unicode Security Mechanisms (Restriction Levels, §4 Confusables — via opt-in `SwiftEmailValidatorUTS39`)
 https://www.unicode.org/reports/tr39/
+
+### IETF Special-Use Domain Names (default `TLDDomainValidator` policy)
+
+RFC3172 - Management Guidelines & Operational Requirements for the .arpa zone
+https://datatracker.ietf.org/doc/html/rfc3172
+
+RFC6761 - Special-Use Domain Names (.test, .example, .invalid, .localhost)
+https://datatracker.ietf.org/doc/html/rfc6761
+
+RFC6762 - Multicast DNS (.local)
+https://datatracker.ietf.org/doc/html/rfc6762
+
+RFC7686 - The ".onion" Special-Use Domain Name
+https://datatracker.ietf.org/doc/html/rfc7686
+
+RFC8375 - Special-Use Domain "home.arpa." (Homenet)
+https://datatracker.ietf.org/doc/html/rfc8375
+
+RFC9476 - The .alt Special-Use Top-Level Domain
+https://datatracker.ietf.org/doc/html/rfc9476
