@@ -5,29 +5,124 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.7.0] - 2026-04-26
 
 ### Added
 
 - **`SwiftEmailValidatorIDNA` companion target** — opt-in UTS #46 Unicode
   IDNA Compatibility Processing on the host portion of the address.
   Mirrors the `SwiftEmailValidatorUTS39` architecture: imported separately
-  so the ~385 KB mapping table doesn't bundle into callers that don't
-  need it. Provides:
+  (`import SwiftEmailValidatorIDNA`) so the ~385 KB UCD-derived data
+  doesn't bundle into callers that don't need it. Provides:
   - `IDNA.toAscii(_:options:)` / `IDNA.toUnicode(_:options:)` — direct
-    UTS #46 §4 Map / NFC / Validate / ToASCII pipeline.
+    UTS #46 §4 Map / NFC / Break / Validate / ToASCII pipeline.
   - `IDNA.domainValidator(_:base:)` factory and convenience overloads
     `EmailSyntaxValidator.correctlyFormatted(_:idna:)` /
     `mailbox(from:idna:)` chaining IDNA processing into the existing
     `domainValidator` slot.
   - `IDNA.Options` — `transitional` (default `false`, matches the
-    post-2016 spec recommendation), `checkHyphens`, `useSTD3ASCIIRules`.
-  - Self-contained RFC 3492 Punycode encoder/decoder.
-  - Bundled `IdnaMappingTable.txt` data, currently Unicode 17.0.0.
-  - Generator at `Sources/SwiftEmailValidatorIDNA/Tools/generate.py`.
-  - Bidi (RFC 5893) and CONTEXTJ (RFC 5892 §A) checks are deliberately
-    deferred — see header comment in `IDNA.swift` for the full
-    out-of-scope list.
+    post-2016 spec recommendation and modern browsers), `checkHyphens`,
+    `useSTD3ASCIIRules`, `verifyDnsLength`, `checkBidi`, `checkJoiners`,
+    `checkContextO`.
+  - Self-contained RFC 3492 Punycode encoder/decoder with overflow
+    guards on every multiply/add.
+  - Bundled IDNA mapping table, Bidi_Class, Joining_Type, Virama, and
+    Script tables — Unicode 17.0.0.
+  - Generator pipeline at `Sources/SwiftEmailValidatorIDNA/Tools/`
+    (`fetch-ucd.sh` + `generate.py`); regenerate only on UCD upgrades.
+- **UTS #46 §4 V1-V7 validity criteria** all enforced by default:
+  V1 NFC, V2 hyphen rules (leading/trailing + 3-4 with `xn--` carve-out),
+  V3 leading combining mark rejection (Mn/Mc/Me), V4/V5 per-scalar
+  status + `UseSTD3ASCIIRules` LDH gate, V6 `CheckBidi` (RFC 5893 §2),
+  V7 `CheckJoiners` (RFC 5892 §A.1 ZWNJ + §A.2 ZWJ).
+- **`UseSTD3ASCIIRules` enforcement at the validator layer.** The modern
+  preprocessed IDNA Mapping Table classifies non-LDH ASCII (`_`, `/`,
+  `:`, `@`, `*`, `<`, `>`, `"`, `$`, `+`, C0/DEL, …) as `valid` with the
+  informational `NV8` tag, so STD3 cannot be inferred from the table
+  status alone. The validator runs an explicit per-scalar LDH check on
+  ASCII scalars after Step 1 mapping (so `U+FF0F` → `U+002F` is also
+  caught) and after `xn--` decoding.
+- **`VerifyDnsLength` enforcement** per UTS #46 §4.2 ToASCII step 5 /
+  RFC 5890 §2.3.1: each A-label 1-63 octets, total domain 1-253 octets
+  excluding any trailing root dot. Applied uniformly to every A-label,
+  not just freshly Punycode-encoded ones, so a 64-char input ASCII
+  label and an oversized `xn--` input are both caught. Empty trailing
+  root labels rejected when on; preserved when off.
+- **RFC 5893 §2 Bidi rule** (UTS #46 V6). Enforced on every label of
+  any "Bidi domain name" (RFC 5893 §1.4: any label contains R/AL/AN).
+  Pure-LTR siblings of RTL labels are also gated. All six conditions
+  implemented (LTR-start vs RTL-start, condition 4 EN/AN exclusivity,
+  trailing-NSM peeling for conditions 3/6).
+- **RFC 5892 §A.1 / §A.2 CONTEXTJ rules** (UTS #46 V7). ZWNJ allowed
+  when preceded by Virama (CCC=9) OR when sandwiched between L|D and
+  R|D Joining_Type runs (T-class scalars transparent on both sides).
+  ZWJ allowed only when preceded by Virama. Catches ZWJ/ZWNJ used
+  outside legitimate joining contexts — a known homograph attack
+  vector — while preserving Persian/Indic legitimate use.
+- **RFC 5892 §A.3-§A.9 CONTEXTO rules** layered on top of UTS #46 §4
+  as a security extension (default on, opt-out via
+  `IDNA.Options.checkContextO: false`):
+  - §A.3 `U+00B7` MIDDLE DOT only between two `'l'` (Catalan ela
+    geminada).
+  - §A.4 `U+0375` GREEK KERAIA only when followed by Greek script.
+  - §A.5 / §A.6 `U+05F3` / `U+05F4` HEBREW GERESH / GERSHAYIM only
+    when preceded by Hebrew script.
+  - §A.7 `U+30FB` KATAKANA MIDDLE DOT only in labels also containing
+    Hiragana, Katakana, or Han script.
+  - §A.8 / §A.9 Arabic-Indic Digits (`U+0660..U+0669`) and Extended
+    Arabic-Indic Digits (`U+06F0..U+06F9`) must not mix in the same
+    label.
+
+  Not required by UTS #46 §4 itself — added as a homograph-defense
+  layer. Disable for strict UTS #46-only conformance.
+
+### Tests
+
+- **`IdnaTestV2DriverTests` conformance driver** runs the official
+  Unicode `IdnaTestV2.txt` (v17.0.0) end-to-end across **toUnicode**,
+  **toAsciiN** (Nontransitional), and **toAsciiT** (Transitional). All
+  status code families (`Pn`, `Vn`, `An`, `Bn`, `Cn`, `Xn`, `U1`) are
+  in scope: any row carrying any of them must be rejected by the
+  implementation. CONTEXTO is disabled in the driver because UTS #46
+  vectors are agnostic to it; CONTEXTO is exercised independently by
+  `ContextOTests`. Driver covers >1000 vectors with 0 failures.
+- New per-rule test files: `IDNAProcessingTests`, `BidiRuleTests`,
+  `ContextJTests`, `ContextOTests`, `IDNAIntegrationTests`,
+  `PunycodeTests`. Total IDNA test count: 102.
+
+### Tooling
+
+- **Mapping table stored as parallel primitive arrays** rather than
+  `[(UInt32, UInt32, UInt8, UInt32, UInt8)]` tuples. The tuple-array
+  form OOMed GitHub-hosted macOS CI runners during parallel module
+  compilation alongside the UTS #39 data tables; flat arrays let the
+  emit-module phase type-check each homogeneous primitive cheaply.
+- **`Tools/generate.py`** emits five generated data files
+  (`IdnaMapping.swift`, `BidiClass.swift`, `JoiningType.swift`,
+  `Virama.swift`, `Script.swift`). Run only on UCD version upgrades;
+  the generated Swift files are checked into source control.
+
+### Benchmarks
+
+- **Comparison table now grades each adapter within its declared RFC
+  scope.** Previously every library was scored against the full corpus
+  including UTS #39 / IDNA / RFC 6531 cases, penalizing libraries that
+  never claimed to handle them. Adapters now declare their scope; the
+  in-scope accuracy column is the headline metric, with a
+  modern-superset column kept alongside for callers who care about
+  beyond-scope coverage.
+- Benchmark output refreshed for the IDNA companion target.
+
+### Documentation
+
+- README links the IETF Special-Use Domain RFCs (6761 / 6762 / 7686 /
+  8375 / 9476) inline and surfaces the IDNA companion target in the
+  intro section.
+- `CLAUDE.md` and `SECURITY.md` refreshed for the 1.7.x architecture
+  (three library targets: core / UTS #39 / IDNA).
+- DemoApp corpus size reference corrected (150/195 → ~240).
+
+## [1.6.1] - 2026-04-26
 
 ## [1.6.1] - 2026-04-26
 

@@ -20,7 +20,7 @@ You can use The Swift Package Manager to install SwiftEmailValidator by adding i
         name: "MyApp",
         targets: [],
         dependencies: [
-            .Package(url: "https://github.com/ekscrypto/SwiftEmailValidator.git", .upToNextMajor(from: "1.6.1"))
+            .Package(url: "https://github.com/ekscrypto/SwiftEmailValidator.git", .upToNextMajor(from: "1.7.0"))
         ]
     )
 
@@ -543,7 +543,7 @@ pull the competitor dependencies.
 
 | Library | Tested revision | RFC coverage | Domain validation |
 |---|---|---|---|
-| [SwiftEmailValidator](https://github.com/ekscrypto/SwiftEmailValidator) (this package) | 1.6.1 | RFC 822 / 2047 / 5321 / 5322 / 6531 | ✅ IANA TLD + RFC 6761 special-use blocklist (pluggable via `domainValidator:`) |
+| [SwiftEmailValidator](https://github.com/ekscrypto/SwiftEmailValidator) (this package) | 1.7.0 | RFC 822 / 2047 / 5321 / 5322 / 6531 | ✅ IANA TLD + RFC 6761 special-use blocklist (pluggable via `domainValidator:`) |
 | [evanrobertson/EmailValidator](https://github.com/evanrobertson/EmailValidator) | `master` @ `ff80978` (untagged) | RFC 5322; optional i18n (RFC 653x) via `allowInternational:` | — |
 | [igorrendulic/MimeEmailParser](https://github.com/igorrendulic/MimeEmailParser) | 1.0.5 | RFC 5322 + RFC 2047 / 6532 | — |
 | [bdolewski/SwiftEmailValidator](https://github.com/bdolewski/SwiftEmailValidator) | `master` @ `85a0fc1` (regex vendored: the library's `EmailValidator` symbol has default/`internal` access and cannot be imported) | RFC 5322 (single regex) | — |
