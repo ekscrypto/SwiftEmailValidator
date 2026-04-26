@@ -32,6 +32,8 @@ struct TestData {
         zeroWidthInvisibleCases +
         unicodeSpaceSpoofingCases +
         variationSelectorsCases +
+        supplementaryDefaultIgnorableCases +
+        leadingCombiningMarkCases +
         tagCharactersCases +
         supplementaryPlaneAttacksCases +
         rfc2047ControlInjectionCases +
@@ -135,6 +137,7 @@ struct TestData {
         EmailTestCase(email: "cafe\u{0301}@site.com", category: .validUnicode, expectedValid: true, description: "Combining mark (café)"),
         EmailTestCase(email: "\u{1D400}@site.com", category: .validUnicode, expectedValid: true, description: "Mathematical bold A (beyond BMP)"),
         EmailTestCase(email: "한中あαбעعहবதతకಕമෆไᎠ@site.com", category: .validUnicode, expectedValid: true, description: "Diverse Unicode scripts"),
+        EmailTestCase(email: "user@exam\u{05B0}ple.com", category: .validUnicode, expectedValid: true, description: "U+05B0 HEBREW POINT SHEVA in domain (Mn, PVALID under IDNA2008)"),
     ]
 
     // MARK: - Valid IP Address Literals
@@ -329,6 +332,9 @@ struct TestData {
     ]
 
     // MARK: - Zero-Width / Invisible Characters
+    //
+    // Includes Default_Ignorable BMP scalars per RFC 5892 §2.6 — letter-class fillers
+    // (Lo), Mn variation-class scalars (Mongolian/Khmer/CGJ), and reserved Cn DI ranges.
 
     static let zeroWidthInvisibleCases: [EmailTestCase] = [
         EmailTestCase(email: "te\u{200B}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+200B ZERO WIDTH SPACE"),
@@ -339,6 +345,20 @@ struct TestData {
         EmailTestCase(email: "te\u{FEFF}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+FEFF ZERO WIDTH NO-BREAK SPACE / BOM"),
         EmailTestCase(email: "te\u{FE0F}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+FE0F VARIATION SELECTOR-16"),
         EmailTestCase(email: "te\u{00AD}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+00AD SOFT HYPHEN"),
+        EmailTestCase(email: "te\u{034F}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+034F COMBINING GRAPHEME JOINER (Mn, Default_Ignorable)"),
+        EmailTestCase(email: "te\u{061C}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+061C ARABIC LETTER MARK"),
+        EmailTestCase(email: "te\u{115F}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+115F HANGUL CHOSEONG FILLER (Lo, Default_Ignorable)"),
+        EmailTestCase(email: "te\u{1160}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+1160 HANGUL JUNGSEONG FILLER (Lo, Default_Ignorable)"),
+        EmailTestCase(email: "te\u{17B4}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+17B4 KHMER VOWEL INHERENT AQ (Mn, Default_Ignorable)"),
+        EmailTestCase(email: "te\u{17B5}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+17B5 KHMER VOWEL INHERENT AA (Mn, Default_Ignorable)"),
+        EmailTestCase(email: "te\u{180B}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+180B MONGOLIAN FREE VARIATION SELECTOR-1"),
+        EmailTestCase(email: "te\u{180D}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+180D MONGOLIAN FREE VARIATION SELECTOR-3"),
+        EmailTestCase(email: "te\u{180E}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+180E MONGOLIAN VOWEL SEPARATOR"),
+        EmailTestCase(email: "te\u{180F}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+180F MONGOLIAN FREE VARIATION SELECTOR-4 (Unicode 14.0)"),
+        EmailTestCase(email: "te\u{3164}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+3164 HANGUL FILLER (Lo, Default_Ignorable)"),
+        EmailTestCase(email: "te\u{FFA0}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+FFA0 HALFWIDTH HANGUL FILLER"),
+        EmailTestCase(email: "te\u{FFF0}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+FFF0 reserved (Cn, Default_Ignorable)"),
+        EmailTestCase(email: "te\u{FFF8}st@site.com", category: .zeroWidthInvisible, expectedValid: false, description: "U+FFF8 reserved (Cn, Default_Ignorable, last of FFF0–FFF8)"),
     ]
 
     // MARK: - Unicode Space Spoofing (visually identical to ASCII space)
@@ -359,6 +379,45 @@ struct TestData {
         EmailTestCase(email: "test\u{E0100}@site.com", category: .variationSelectors, expectedValid: false, description: "U+E0100 VARIATION SELECTOR-17"),
         EmailTestCase(email: "test\u{E0101}@site.com", category: .variationSelectors, expectedValid: false, description: "U+E0101 VARIATION SELECTOR-18"),
         EmailTestCase(email: "test\u{E01EF}@site.com", category: .variationSelectors, expectedValid: false, description: "U+E01EF VARIATION SELECTOR-256"),
+    ]
+
+    // MARK: - Supplementary Default_Ignorable (SMP Cf)
+    //
+    // SMP-resident format/Default_Ignorable scalars. RFC 5892 §2.6 DISALLOWED. The local-part
+    // path historically admitted these because the supplementaryPlanes block is unconditionally
+    // union'd into atext/qtext sets (Foundation .subtracting() corrupts supplementary-plane
+    // bitmaps), so they're rejected via an explicit isRejectedSupplementaryScalar guard.
+
+    static let supplementaryDefaultIgnorableCases: [EmailTestCase] = [
+        EmailTestCase(email: "test\u{1BCA0}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1BCA0 SHORTHAND FORMAT LETTER OVERLAP (Cf)"),
+        EmailTestCase(email: "test\u{1BCA1}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1BCA1 SHORTHAND FORMAT CONTINUING OVERLAP (Cf)"),
+        EmailTestCase(email: "test\u{1BCA2}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1BCA2 SHORTHAND FORMAT DOWN STEP (Cf)"),
+        EmailTestCase(email: "test\u{1BCA3}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1BCA3 SHORTHAND FORMAT UP STEP (Cf)"),
+        EmailTestCase(email: "test\u{1D173}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1D173 MUSICAL SYMBOL BEGIN BEAM (Cf)"),
+        EmailTestCase(email: "test\u{1D174}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1D174 MUSICAL SYMBOL END BEAM (Cf)"),
+        EmailTestCase(email: "test\u{1D175}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1D175 MUSICAL SYMBOL BEGIN TIE (Cf)"),
+        EmailTestCase(email: "test\u{1D176}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1D176 MUSICAL SYMBOL END TIE (Cf)"),
+        EmailTestCase(email: "test\u{1D177}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1D177 MUSICAL SYMBOL BEGIN SLUR (Cf)"),
+        EmailTestCase(email: "test\u{1D178}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1D178 MUSICAL SYMBOL END SLUR (Cf)"),
+        EmailTestCase(email: "test\u{1D179}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1D179 MUSICAL SYMBOL BEGIN PHRASE (Cf)"),
+        EmailTestCase(email: "test\u{1D17A}@site.com", category: .supplementaryDefaultIgnorable, expectedValid: false, description: "U+1D17A MUSICAL SYMBOL END PHRASE (Cf)"),
+    ]
+
+    // MARK: - Leading Combining Mark
+    //
+    // Per RFC 5891 §4.2.3.2 / IDNA2008, a label cannot start with a combining mark
+    // (General_Category Mn / Mc / Me) — there's no preceding base scalar to attach to,
+    // and a label of pure combining marks renders as nothing or attaches to an unrelated
+    // base scalar, enabling spoofing. Mid-label combining marks (e.g. "café" as
+    // "cafe" + U+0301) remain valid — see validUnicodeCases.
+
+    static let leadingCombiningMarkCases: [EmailTestCase] = [
+        EmailTestCase(email: "\u{0301}@site.com", category: .leadingCombiningMark, expectedValid: false, description: "U+0301 COMBINING ACUTE ACCENT (Mn) — lone leading"),
+        EmailTestCase(email: "\u{0302}@site.com", category: .leadingCombiningMark, expectedValid: false, description: "U+0302 COMBINING CIRCUMFLEX ACCENT (Mn) — lone leading"),
+        EmailTestCase(email: "\u{0489}@site.com", category: .leadingCombiningMark, expectedValid: false, description: "U+0489 COMBINING CYRILLIC MILLIONS SIGN (Me) — lone leading"),
+        EmailTestCase(email: "\u{0903}@site.com", category: .leadingCombiningMark, expectedValid: false, description: "U+0903 DEVANAGARI SIGN VISARGA (Mc) — lone leading"),
+        EmailTestCase(email: "\u{0301}\u{0302}\u{0303}@site.com", category: .leadingCombiningMark, expectedValid: false, description: "Three combining marks, no base"),
+        EmailTestCase(email: "user.\u{0301}bar@site.com", category: .leadingCombiningMark, expectedValid: false, description: "Sub-label starting with combining mark after dot"),
     ]
 
     // MARK: - Tag Characters (U+E0000–U+E007F)

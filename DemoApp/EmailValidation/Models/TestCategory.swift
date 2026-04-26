@@ -23,6 +23,8 @@ enum TestCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
     case zeroWidthInvisible = "Zero-width / invisible chars"
     case unicodeSpaceSpoofing = "Unicode space spoofing"
     case variationSelectors = "Variation selectors (supp.)"
+    case supplementaryDefaultIgnorable = "Supplementary Default_Ignorable (SMP Cf)"
+    case leadingCombiningMark = "Leading combining mark"
     case tagCharacters = "Tag characters"
     case supplementaryPlaneAttacks = "Supplementary-plane attacks"
     case rfc2047ControlInjection = "RFC2047 control injection"
