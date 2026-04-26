@@ -78,6 +78,14 @@ SwiftEmailValidator is an RFC-compliant email syntax validator supporting intern
 - Plugs into the main validator through the `localPartValidator` closure parameter (added in 1.5.0)
 - Data tables are generated from UCD via `Sources/SwiftEmailValidatorUTS39/Tools/generate.py`; regenerate only on UCD version upgrades
 
+**SwiftEmailValidatorIDNA** (`Sources/SwiftEmailValidatorIDNA/`)
+- Opt-in companion library layering UTS #46 IDNA Compatibility Processing on the host portion of the address
+- Import separately (`import SwiftEmailValidatorIDNA`) to avoid bundling ~385 KB of mapping data into callers that don't need it
+- Provides `IDNA.Options` (transitional vs nontransitional, CheckHyphens, UseSTD3ASCIIRules), plus `IDNA.toAscii(_:)` / `IDNA.toUnicode(_:)` for direct use
+- Exposes `IDNA.domainValidator(_:base:)` factory and convenience overloads `EmailSyntaxValidator.correctlyFormatted(_:idna:)` / `mailbox(from:idna:)`
+- Implements §4 steps 1-5 (Map / NFC / Break / Validate / ToASCII) with a self-contained RFC 3492 Punycode codec; deliberately omits Bidi (RFC 5893) and CONTEXTJ — see header comment in `IDNA.swift`
+- Mapping table generated from `IdnaMappingTable.txt` via `Sources/SwiftEmailValidatorIDNA/Tools/generate.py`; regenerate only on UCD version upgrades
+
 ### Validation Flow
 
 1. Optionally decode RFC2047 encoded input
@@ -110,4 +118,6 @@ SwiftEmailValidator is an RFC-compliant email syntax validator supporting intern
 - RFC 6532: Internationalized Email Headers (`EmailNormalizer.nfc(_:)` is §3.1 compliant)
 - RFC 6761 / 6762 / 7686 / 8375 / 9476: IETF Special-Use Domain Names (rejected by `TLDDomainValidator`)
 - UTS #39: Unicode Security Mechanisms (via opt-in `SwiftEmailValidatorUTS39` target)
-- UTS #46 §4: dot-mapping (U+3002 / U+FF0E / U+FF61 → ASCII '.') applied in `TLDDomainValidator.isPubliclyDeliverable(_:)`
+- UTS #46 §4 dot-mapping: `TLDDomainValidator.isPubliclyDeliverable(_:)` folds U+3002 / U+FF0E / U+FF61 to ASCII '.' in the core
+- UTS #46 §4 full pipeline: Map / NFC / Break / Validate / ToASCII via opt-in `SwiftEmailValidatorIDNA` target (Bidi + CONTEXTJ deferred)
+- RFC 3492: Punycode encoding (used by `SwiftEmailValidatorIDNA` for ToASCII / ToUnicode)

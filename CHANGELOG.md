@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`SwiftEmailValidatorIDNA` companion target** — opt-in UTS #46 Unicode
+  IDNA Compatibility Processing on the host portion of the address.
+  Mirrors the `SwiftEmailValidatorUTS39` architecture: imported separately
+  so the ~385 KB mapping table doesn't bundle into callers that don't
+  need it. Provides:
+  - `IDNA.toAscii(_:options:)` / `IDNA.toUnicode(_:options:)` — direct
+    UTS #46 §4 Map / NFC / Validate / ToASCII pipeline.
+  - `IDNA.domainValidator(_:base:)` factory and convenience overloads
+    `EmailSyntaxValidator.correctlyFormatted(_:idna:)` /
+    `mailbox(from:idna:)` chaining IDNA processing into the existing
+    `domainValidator` slot.
+  - `IDNA.Options` — `transitional` (default `false`, matches the
+    post-2016 spec recommendation), `checkHyphens`, `useSTD3ASCIIRules`.
+  - Self-contained RFC 3492 Punycode encoder/decoder.
+  - Bundled `IdnaMappingTable.txt` data, currently Unicode 17.0.0.
+  - Generator at `Sources/SwiftEmailValidatorIDNA/Tools/generate.py`.
+  - Bidi (RFC 5893) and CONTEXTJ (RFC 5892 §A) checks are deliberately
+    deferred — see header comment in `IDNA.swift` for the full
+    out-of-scope list.
+
 ## [1.6.1] - 2026-04-26
 
 ### Security

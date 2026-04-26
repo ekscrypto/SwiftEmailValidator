@@ -16,6 +16,9 @@ let package = Package(
         .library(
             name: "SwiftEmailValidatorUTS39",
             targets: ["SwiftEmailValidatorUTS39"]),
+        .library(
+            name: "SwiftEmailValidatorIDNA",
+            targets: ["SwiftEmailValidatorIDNA"]),
     ],
     dependencies: [],
     targets: [
@@ -28,11 +31,19 @@ let package = Package(
             dependencies: ["SwiftEmailValidator"],
             exclude: ["Tools"],
             resources: []),
+        .target(
+            name: "SwiftEmailValidatorIDNA",
+            dependencies: ["SwiftEmailValidator"],
+            exclude: ["Tools"],
+            resources: []),
         .testTarget(
             name: "SwiftEmailValidatorTests",
             dependencies: ["SwiftEmailValidator"]),
         .testTarget(
             name: "SwiftEmailValidatorUTS39Tests",
             dependencies: ["SwiftEmailValidatorUTS39", "SwiftEmailValidator"]),
+        .testTarget(
+            name: "SwiftEmailValidatorIDNATests",
+            dependencies: ["SwiftEmailValidatorIDNA", "SwiftEmailValidator"]),
     ]
 )

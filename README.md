@@ -2,12 +2,12 @@
 
 # SwiftEmailValidator
 
-A Swift implementation of an international email address syntax validator based on RFC822, RFC2047, RFC5321, RFC5322, RFC6531, RFC6532 and UTS #39.
+A Swift implementation of an international email address syntax validator based on RFC822, RFC2047, RFC5321, RFC5322, RFC6531, RFC6532, UTS #39 and UTS #46.
 Since email addresses are local @ remote the validator also includes `IPAddressSyntaxValidator` and a built-in `TLDDomainValidator` whose default policy implements the IETF Special-Use Domain Names registry: `.arpa` (RFC 3172), `.test` / `.example` / `.invalid` / `.localhost` (RFC 6761), `.local` (RFC 6762), `.onion` (RFC 7686), `home.arpa` (RFC 8375), and `.alt` (RFC 9476). See [Reference Documents](#reference-documents) for the full RFC list.
 
 This Swift Package does not require an Internet connection at runtime and has **no third-party dependencies**. Default domain validation is built in (see [Domain validation](#domain-validation) below).
 
-The package ships **two library products**: `SwiftEmailValidator` (core RFC syntax validation, always-on) and `SwiftEmailValidatorUTS39` (opt-in Unicode Security Mechanisms — mixed-script detection, confusable skeletons, Identifier_Status filtering). The UTS #39 target carries ~280 KB of Unicode data and is imported separately so the core library stays slim. See [SwiftEmailValidatorUTS39](#swiftemailvalidatoruts39-unicode-security-mechanisms) below.
+The package ships **three library products**: `SwiftEmailValidator` (core RFC syntax validation, always-on); `SwiftEmailValidatorUTS39` (opt-in Unicode Security Mechanisms — mixed-script detection, confusable skeletons, Identifier_Status filtering); and `SwiftEmailValidatorIDNA` (opt-in UTS #46 IDNA Compatibility Processing — full mapping table, NFC, ToASCII / ToUnicode via RFC 3492 Punycode). Each opt-in target carries its own bundled Unicode data (~280 KB for UTS #39, ~385 KB for IDNA) and is imported separately so the core library stays slim. See [SwiftEmailValidatorUTS39](#swiftemailvalidatoruts39-unicode-security-mechanisms) and [SwiftEmailValidatorIDNA](#swiftemailvalidatoridna-uts-46-idna-compatibility-processing) below.
 
 ## Installation
 ### Swift Package Manager (SPM)
@@ -32,6 +32,8 @@ Then depend on **one or both** library products from your target:
             .product(name: "SwiftEmailValidator", package: "SwiftEmailValidator"),
             // Opt in only if you need UTS #39 Unicode Security checks:
             .product(name: "SwiftEmailValidatorUTS39", package: "SwiftEmailValidator"),
+            // Opt in only if you need UTS #46 IDNA Compatibility Processing:
+            .product(name: "SwiftEmailValidatorIDNA", package: "SwiftEmailValidator"),
         ])
 
 ## Domain validation
@@ -381,6 +383,72 @@ The closure receives the **semantic** local-part string: a dot-atom as-is, or
 a quoted-string in its **cleaned (unescaped, unquoted)** form — so
 `"a\"b"@example.com` reaches the closure as `a"b`, not `"a\"b"`.
 
+### SwiftEmailValidatorIDNA (UTS #46 IDNA Compatibility Processing)
+
+`SwiftEmailValidatorIDNA` is an **opt-in** companion library that runs
+[UTS #46](https://www.unicode.org/reports/tr46/) Unicode IDNA Compatibility
+Processing on the host part of the address before the base domain check.
+It bundles the full IDNA Mapping Table and a self-contained
+[RFC 3492](https://datatracker.ietf.org/doc/html/rfc3492) Punycode codec.
+
+What it gives you, beyond the core `TLDDomainValidator`:
+
+* **Case-folding and width-folding** — `User@EXAMPLE.com`, `User@ｅｘａｍｐｌｅ.com`,
+  and `User@example.com` all reach the IANA TLD lookup as `example.com`.
+* **U-label ↔ A-label** — `user@münchen.de` and `user@xn--mnchen-3ya.de`
+  are recognized as the same host.
+* **Mapping-table conformance** — non-LDH ASCII, deprecated controls,
+  and IDNA-`disallowed` scalars are rejected per the current Unicode
+  release (currently 17.0.0).
+* **Transitional vs Nontransitional** — switch via `IDNA.Options(transitional:)`.
+  Default is **nontransitional** (post-2016 spec recommendation; matches
+  modern browsers): `ß`, `ς`, ZWJ and ZWNJ are kept rather than mapped.
+
+```swift
+import SwiftEmailValidator
+import SwiftEmailValidatorIDNA
+
+let opts = IDNA.Options()  // nontransitional, CheckHyphens on, UseSTD3 on
+
+// Convenience: IDNA processing chained to TLDDomainValidator.
+EmailSyntaxValidator.correctlyFormatted("user@münchen.de", idna: opts)
+// → true (Punycode-encoded host clears the IANA TLD check via .de)
+
+// Direct ToASCII / ToUnicode for hosts.
+IDNA.toAscii("ｅｘａｍｐｌｅ.com")        // "example.com"
+IDNA.toAscii("münchen.de")             // "xn--mnchen-3ya.de"
+IDNA.toUnicode("xn--mnchen-3ya.de")    // "münchen.de"
+```
+
+`IDNA.domainValidator(_:base:)` builds a closure suitable for the
+`domainValidator:` parameter on the core `correctlyFormatted` /
+`mailbox(from:)` calls. By default it chains to
+`TLDDomainValidator._isPubliclyDeliverable`; pass `base: { _ in true }`
+to use IDNA alone (e.g. for intranet hosts).
+
+```swift
+let domainValidator = IDNA.domainValidator(IDNA.Options(), base: { _ in true })
+EmailSyntaxValidator.correctlyFormatted(
+    "user@müller.intranet",
+    domainValidator: domainValidator)
+```
+
+#### Intentionally out of scope for this initial release
+
+* **Bidi rule** ([RFC 5893](https://datatracker.ietf.org/doc/html/rfc5893) §2). Mixed-direction
+  labels are not detected. Most SMTP/DNS infrastructure does not enforce
+  Bidi either, so the practical interoperability gap is narrow.
+* **CONTEXTJ / CONTEXTO** ([RFC 5892](https://datatracker.ietf.org/doc/html/rfc5892) §A). ZWJ/ZWNJ in
+  joining contexts and Greek-keraia / Hebrew-geresh / Hebrew-gershayim /
+  Katakana-middle-dot context rules are not enforced — ZWJ and ZWNJ are
+  treated as `valid` per nontransitional processing.
+* **`UseSTD3ASCIIRules` enforcement at the validator level**. The bundled
+  mapping table already classifies non-LDH ASCII as `disallowed`, so the
+  flag is currently advisory and exposed for forward compatibility.
+
+Layer your own check on top of `IDNA.toAscii(_:)` output if you need any
+of the deferred mechanisms.
+
 ### IPAddressSyntaxValidator
 
     if IPAddressSyntaxValidator.matchIPv6("::1") {
@@ -667,6 +735,14 @@ https://datatracker.ietf.org/doc/html/rfc6532
 
 UTS #39 - Unicode Security Mechanisms (Restriction Levels, §4 Confusables — via opt-in `SwiftEmailValidatorUTS39`)
 https://www.unicode.org/reports/tr39/
+
+UTS #46 - Unicode IDNA Compatibility Processing
+https://www.unicode.org/reports/tr46/
+  - Core: §4 step 1 dot-mapping (U+3002 / U+FF0E / U+FF61) in `TLDDomainValidator`.
+  - Opt-in `SwiftEmailValidatorIDNA`: full §4 Map / NFC / Validate / ToASCII pipeline (Bidi + CONTEXTJ deferred).
+
+RFC3492 - Punycode (used by `SwiftEmailValidatorIDNA` for ToASCII / ToUnicode)
+https://datatracker.ietf.org/doc/html/rfc3492
 
 ### IETF Special-Use Domain Names (default `TLDDomainValidator` policy)
 
