@@ -83,9 +83,50 @@ final class MixedScriptTests: XCTestCase {
     // MARK: - Single Script rejection of whitelisted combos
 
     func testSingleScriptRejectsJapaneseMix() {
-        // Single Script is stricter than Highly Restrictive — the Latin + Han
-        // + Hiragana + Katakana combo is NOT single-script.
+        // Single Script is stricter than Highly Restrictive — adding Latin
+        // breaks the augmented-set intersection (Latn doesn't fold into Jpan),
+        // so Latin + Han + Hiragana + Katakana is NOT single-script.
         XCTAssertFalse(UTS39.evaluate("ABC会社カナひら", policy: single))
+    }
+
+    // MARK: - UTS #39 §5.1 Augmented Script Set behavior
+
+    func testSingleScriptAcceptsPureJapaneseHanAndHiraganaAndKatakana() {
+        // Per UTS #39 §5.1, Hani folds to {Hanb, Jpan, Kore} and Hira/Kana
+        // fold to Jpan, so Han + Hira + Kana share Jpan in the augmented
+        // intersection — it IS Single Script. Without §5.1 augmentation the
+        // raw Script_Extensions don't intersect and this would be wrongly
+        // rejected.
+        XCTAssertTrue(UTS39.evaluate("会社カナひら", policy: single))
+    }
+
+    func testSingleScriptAcceptsPureKoreanHanAndHangul() {
+        // Han ({Hanb, Jpan, Kore}) ∩ Hang ({Kore}) = {Kore} → Single Script.
+        XCTAssertTrue(UTS39.evaluate("漢가나", policy: single))
+    }
+
+    func testSingleScriptAcceptsPureChineseHanAndBopomofo() {
+        // Han ({Hanb, Jpan, Kore}) ∩ Bopo ({Hanb}) = {Hanb} → Single Script.
+        // Bopomofo letters (U+3105+) are UTS #39 Identifier_Status=Restricted,
+        // so this test must opt out of the restricted check to isolate the
+        // §5.1 augmented-set behavior.
+        let policy = UTS39.Policy(level: .singleScript, rejectRestrictedIdentifiers: false)
+        XCTAssertTrue(UTS39.evaluate("中ㄅㄆㄇ", policy: policy))
+    }
+
+    func testSingleScriptRejectsHiraganaPlusHangul() {
+        // Hira ({Hira, Jpan}) ∩ Hang ({Hang, Kore}) = ∅ → not Single Script,
+        // even with §5.1 augmentation. Pins that the §5.1 closure doesn't
+        // accidentally bridge unrelated CJK syllabaries.
+        XCTAssertFalse(UTS39.evaluate("ひら가나", policy: single))
+    }
+
+    func testSingleScriptRejectsBopomofoPlusHiragana() {
+        // Bopo ({Bopo, Hanb}) ∩ Hira ({Hira, Jpan}) = ∅. Bypasses the
+        // Identifier_Status=Restricted check on Bopomofo letters to keep the
+        // assertion focused on the §5.1 augmented-set behavior.
+        let policy = UTS39.Policy(level: .singleScript, rejectRestrictedIdentifiers: false)
+        XCTAssertFalse(UTS39.evaluate("ㄅㄆひら", policy: policy))
     }
 
     // MARK: - Moderately Restrictive

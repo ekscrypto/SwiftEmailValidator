@@ -65,10 +65,12 @@ final class RestrictionLevelEdgeCaseTests: XCTestCase {
         XCTAssertTrue(UTS39.evaluate("ひらがな", policy: singleScript))
     }
 
-    func testHiraganaPlusKatakanaIsHighlyRestrictive() {
-        // Subset of the Japanese combo. Fails Single Script (two scripts),
-        // passes Highly Restrictive.
-        XCTAssertFalse(UTS39.evaluate("あアいイ", policy: singleScript))
+    func testHiraganaPlusKatakanaIsSingleScriptUnderAugmentedRule() {
+        // Per UTS #39 §5.1, Hira folds to Jpan and Kana folds to Jpan, so
+        // Hira + Kana intersect at {Jpan} — Single Script (Japanese). Was a
+        // subset of the Highly Restrictive Japanese combo before the §5.1
+        // fix; still passes Highly Restrictive (which subsumes Single Script).
+        XCTAssertTrue(UTS39.evaluate("あアいイ", policy: singleScript))
         XCTAssertTrue(UTS39.evaluate("あアいイ", policy: highlyRestrictive))
     }
 

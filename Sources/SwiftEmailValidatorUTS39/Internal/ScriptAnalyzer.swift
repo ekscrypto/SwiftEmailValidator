@@ -34,6 +34,56 @@ enum ScriptAnalyzer {
         return []
     }
 
+    /// Virtual script IDs for the meta-scripts UTS #39 §5.1 introduces in
+    /// the Augmented_Script_Set closure rules. These are not real ISO 15924
+    /// codes that appear in UCD `Script_Extensions` data, so they are not
+    /// in `ScriptsData.scriptCodes`. Values are far above any real script
+    /// ID (currently 174 codes occupy 0–173) so they never collide.
+    private enum AugmentedScriptID {
+        static let hanb = 0x10000  // Han with Bopomofo (Chinese)
+        static let jpan = 0x10001  // Japanese
+        static let kore = 0x10002  // Korean
+    }
+
+    /// UTS #39 §5.1 `Augmented_Script_Set(X)`. Starts from
+    /// `Script_Extensions(X)` and applies the §5.1 closure rules:
+    /// - Hani  → also Hanb, Jpan, Kore
+    /// - Hira  → also Jpan
+    /// - Kana  → also Jpan
+    /// - Hang  → also Kore
+    /// - Bopo  → also Hanb
+    ///
+    /// This is the set §5.2 ("Single Script" bullet) requires for the
+    /// intersection check; using raw `Script_Extensions` would incorrectly
+    /// flag pure-Japanese (Han + Hira/Kana), pure-Korean (Han + Hang) and
+    /// pure-Chinese-with-Bopomofo (Han + Bopo) strings as mixed-script.
+    static func augmentedScriptSet(of scalar: Unicode.Scalar) -> Set<Int> {
+        var set = scriptExtensions(of: scalar)
+        let hani = ScriptsData.haniID
+        let hira = ScriptsData.hiraID
+        let kana = ScriptsData.kanaID
+        let hang = ScriptsData.hangID
+        let bopo = ScriptsData.bopoID
+        if hani >= 0, set.contains(hani) {
+            set.insert(AugmentedScriptID.hanb)
+            set.insert(AugmentedScriptID.jpan)
+            set.insert(AugmentedScriptID.kore)
+        }
+        if hira >= 0, set.contains(hira) {
+            set.insert(AugmentedScriptID.jpan)
+        }
+        if kana >= 0, set.contains(kana) {
+            set.insert(AugmentedScriptID.jpan)
+        }
+        if hang >= 0, set.contains(hang) {
+            set.insert(AugmentedScriptID.kore)
+        }
+        if bopo >= 0, set.contains(bopo) {
+            set.insert(AugmentedScriptID.hanb)
+        }
+        return set
+    }
+
     /// Is the scalar a Common (Zyyy) or Inherited (Zinh) scalar?
     ///
     /// Per UTS #39 §5.2, these scripts "act as wildcards" — they intersect
@@ -95,13 +145,13 @@ enum ScriptAnalyzer {
     /// Does every non-wildcard scalar in `string` have a non-empty
     /// intersection with `target`? This is the core "is the string
     /// compatible with this script set?" check: each character must be
-    /// assignable to at least one script in `target` (via its
-    /// Script_Extensions), with Common/Inherited scalars acting as
+    /// assignable to at least one script in `target` (via its UTS #39 §5.1
+    /// Augmented_Script_Set), with Common/Inherited scalars acting as
     /// universal wildcards.
     private static func stringCompatible(with target: Set<Int>, in string: String) -> Bool {
         for scalar in string.unicodeScalars {
             if isCommonOrInherited(scalar) { continue }
-            let scripts = scriptExtensions(of: scalar)
+            let scripts = augmentedScriptSet(of: scalar)
             if scripts.intersection(target).isEmpty {
                 return false
             }
@@ -112,14 +162,14 @@ enum ScriptAnalyzer {
     /// Does the string qualify as Single Script per UTS #39 §5.2 ("Single
     /// Script" bullet)?
     ///
-    /// Single Script: the intersection of Script_Extensions across all
-    /// non-Common/non-Inherited scalars is non-empty. A string with no
-    /// non-wildcard scalars is vacuously Single Script.
+    /// Single Script: the intersection of UTS #39 §5.1 Augmented_Script_Set
+    /// values across all non-Common/non-Inherited scalars is non-empty. A
+    /// string with no non-wildcard scalars is vacuously Single Script.
     private static func isSingleScript(_ string: String) -> Bool {
         var intersection: Set<Int>? = nil
         for scalar in string.unicodeScalars {
             if isCommonOrInherited(scalar) { continue }
-            let scripts = scriptExtensions(of: scalar)
+            let scripts = augmentedScriptSet(of: scalar)
             if let current = intersection {
                 intersection = current.intersection(scripts)
             } else {

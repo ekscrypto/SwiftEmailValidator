@@ -58,9 +58,13 @@ public enum UTS39 {
     /// not exposed here because the main library already offers `.ascii`
     /// `Compatibility` for that case.
     public enum RestrictionLevel: Equatable {
-        /// UTS #39 §5.2 ("Single Script" bullet) — every scalar's
-        /// Script_Extensions set has a non-empty intersection with every
-        /// other scalar's. Common and Inherited always intersect.
+        /// UTS #39 §5.2 ("Single Script" bullet) — every scalar's UTS #39
+        /// §5.1 Augmented_Script_Set has a non-empty intersection with every
+        /// other scalar's. The §5.1 closure folds Han into {Hanb, Jpan, Kore},
+        /// Hira/Kana into Jpan, Hang into Kore, and Bopo into Hanb, so e.g.
+        /// pure-Japanese (Han + Hira + Kana) and pure-Korean (Han + Hang)
+        /// strings qualify as Single Script. Common and Inherited always
+        /// intersect.
         case singleScript
 
         /// UTS #39 §5.2 ("Highly Restrictive" bullet) — Single Script, or
