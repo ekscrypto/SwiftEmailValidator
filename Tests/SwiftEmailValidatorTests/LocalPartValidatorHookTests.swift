@@ -13,23 +13,14 @@ import XCTest
 
 final class LocalPartValidatorHookTests: XCTestCase {
 
-    /// Accept any domain whose rightmost label is `com`. Replaces the
-    /// legacy PSL-based test helper after the dependency was removed in
-    /// 1.6.0 — preserves test isolation from the IANA list / special-use
-    /// blocklist.
-    private let comOnly: (String) -> Bool = { domain in
-        let labels = domain.lowercased().split(separator: ".", omittingEmptySubsequences: false)
-        return labels.count >= 2 && labels.allSatisfy { !$0.isEmpty } && labels.last == "com"
-    }
-
     func testDefaultHookPreservesBehavior() {
         XCTAssertTrue(EmailSyntaxValidator.correctlyFormatted(
             "user@site.com",
-            domainValidator: comOnly))
+            domainValidator: comOnlyDomainValidator))
 
         XCTAssertNotNil(EmailSyntaxValidator.mailbox(
             from: "first.last@site.com",
-            domainValidator: comOnly))
+            domainValidator: comOnlyDomainValidator))
     }
 
     func testHookRejectionSurfacesAsNil() {
@@ -37,12 +28,12 @@ final class LocalPartValidatorHookTests: XCTestCase {
 
         XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted(
             "user@site.com",
-            domainValidator: comOnly,
+            domainValidator: comOnlyDomainValidator,
             localPartValidator: rejectAll))
 
         XCTAssertNil(EmailSyntaxValidator.mailbox(
             from: "first.last@site.com",
-            domainValidator: comOnly,
+            domainValidator: comOnlyDomainValidator,
             localPartValidator: rejectAll))
     }
 
@@ -55,7 +46,7 @@ final class LocalPartValidatorHookTests: XCTestCase {
 
         _ = EmailSyntaxValidator.mailbox(
             from: "first.last@site.com",
-            domainValidator: comOnly,
+            domainValidator: comOnlyDomainValidator,
             localPartValidator: capture)
 
         XCTAssertEqual(captured, "first.last")
@@ -72,7 +63,7 @@ final class LocalPartValidatorHookTests: XCTestCase {
         // double-quotes. The hook must see the semantic value, not the raw form.
         _ = EmailSyntaxValidator.mailbox(
             from: "\"hello world\"@site.com",
-            domainValidator: comOnly,
+            domainValidator: comOnlyDomainValidator,
             localPartValidator: capture)
 
         XCTAssertEqual(captured, "hello world")
@@ -88,7 +79,7 @@ final class LocalPartValidatorHookTests: XCTestCase {
         // `"a\"b"@site.com` — the escape `\"` decodes to a literal `"`.
         _ = EmailSyntaxValidator.mailbox(
             from: "\"a\\\"b\"@site.com",
-            domainValidator: comOnly,
+            domainValidator: comOnlyDomainValidator,
             localPartValidator: capture)
 
         XCTAssertEqual(captured, "a\"b")
@@ -104,7 +95,7 @@ final class LocalPartValidatorHookTests: XCTestCase {
         // Missing local part — RFC parsing fails before the hook runs.
         XCTAssertNil(EmailSyntaxValidator.mailbox(
             from: "@site.com",
-            domainValidator: comOnly,
+            domainValidator: comOnlyDomainValidator,
             localPartValidator: count))
 
         XCTAssertEqual(invocations, 0)
@@ -124,7 +115,7 @@ final class LocalPartValidatorHookTests: XCTestCase {
             from: "héllo@site.com",
             options: [.autoEncodeToRfc2047],
             compatibility: .asciiWithUnicodeExtension,
-            domainValidator: comOnly,
+            domainValidator: comOnlyDomainValidator,
             localPartValidator: count)
 
         XCTAssertLessThanOrEqual(invocations, 1)
