@@ -145,28 +145,47 @@ final class RFC2047CoderTests: XCTestCase {
     }
 
     func testDecodingUTF16InvalidData() {
-        // UTF-16 with invalid surrogate pair (high surrogate without low)
-        // 0xD800 is a high surrogate, needs a low surrogate (0xDC00-0xDFFF) to follow
-        let invalidUtf16Data = Data([0xD8, 0x00, 0xD8, 0x00]) // Two high surrogates
+        // UTF-16 with invalid surrogate pair (high surrogate without low).
+        // 0xD800 is a high surrogate; UTF-16 requires it be followed by a
+        // low surrogate (0xDC00-0xDFFF). Two high surrogates back-to-back
+        // are malformed regardless of platform endianness.
+        let invalidUtf16Data = Data([0xD8, 0x00, 0xD8, 0x00])
         let invalidBase64 = invalidUtf16Data.base64EncodedString().replacingOccurrences(of: "=", with: "")
         let rfc2047Encoded = "=?utf-16?b?\(invalidBase64)?="
-        // Document actual behavior - may return nil or empty depending on implementation
         let result = RFC2047Coder.decode(rfc2047Encoded)
-        // Swift's String(data:encoding:) may return nil or replacement character for invalid sequences
+        // The previous assertion accepted three disjoint outcomes (nil, "",
+        // or contains U+FFFD), which would have passed even if a future
+        // Foundation release silently accepted the bytes as a valid two-
+        // scalar string. Pin the actual platform behavior. CI runs on
+        // macOS where Foundation rejects this payload outright (returns
+        // nil); other platforms keep the lenient assertion until probed.
+        #if canImport(Darwin)
+        XCTAssertNil(result,
+                     "Foundation on Darwin must reject this invalid UTF-16 payload outright (returns nil from String(data:encoding:.utf16))")
+        #else
         XCTAssertTrue(result == nil || result == "" || result?.contains("\u{FFFD}") == true,
-                      "Invalid UTF-16 surrogate sequence should fail or produce replacement characters")
+                      "Non-Darwin Foundation: invalid UTF-16 surrogate sequence should fail or produce replacement characters")
+        #endif
     }
 
     func testDecodingUTF32InvalidData() {
-        // UTF-32 with invalid code point (beyond Unicode range)
-        // Code points > 0x10FFFF are invalid
-        let invalidUtf32Data = Data([0x00, 0x20, 0x00, 0x00]) // 0x200000 - invalid
+        // UTF-32 with an out-of-Unicode-range code point. 0x00200000 is
+        // above the Unicode max (0x10FFFF) and is invalid in UTF-32 BE;
+        // 0x00002000 is U+2000 (EN QUAD, valid) in UTF-32 LE — so the
+        // platform-endian fallback decision matters here.
+        let invalidUtf32Data = Data([0x00, 0x20, 0x00, 0x00])
         let invalidBase64 = invalidUtf32Data.base64EncodedString().replacingOccurrences(of: "=", with: "")
         let rfc2047Encoded = "=?utf-32?b?\(invalidBase64)?="
-        // Document actual behavior
         let result = RFC2047Coder.decode(rfc2047Encoded)
+        // Same rationale as the UTF-16 test above. Pin the Darwin
+        // behavior (nil); leave the lenient three-way OR for non-Darwin.
+        #if canImport(Darwin)
+        XCTAssertNil(result,
+                     "Foundation on Darwin must reject this UTF-32 payload outright (returns nil from String(data:encoding:.utf32))")
+        #else
         XCTAssertTrue(result == nil || result == "" || result?.contains("\u{FFFD}") == true,
-                      "Invalid UTF-32 code point should fail or produce replacement characters")
+                      "Non-Darwin Foundation: invalid UTF-32 code point should fail or produce replacement characters")
+        #endif
     }
 
     // MARK: - Phase 1: Round-Trip Tests
@@ -278,8 +297,17 @@ final class RFC2047CoderTests: XCTestCase {
     }
 
     func testDecodeWithWhitespaceInEncodedWord() {
-        // RFC2047 encoded words should not contain literal spaces in the encoded-text portion
-        XCTAssertNil(RFC2047Coder.decode("=?utf-8?b?dGVz dA?="), "Spaces in encoded text should cause failure or be handled per RFC")
+        // RFC 2047 §2: encoded-text = 1*<Any printable ASCII char other
+        // than "?" or SPACE>. Cover both encoding paths so a regression
+        // that relaxes the regex but leaves the alphabet check would
+        // still trip — the base64 case happens to also fail because
+        // SPACE isn't in the base64 alphabet, but that's incidental, so
+        // the Q-encoding case below is the one that exercises the §2
+        // SPACE-in-encoded-text rule directly.
+        XCTAssertNil(RFC2047Coder.decode("=?utf-8?b?dGVz dA?="),
+                     "SPACE in Base64 encoded-text must be rejected per RFC 2047 §2")
+        XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q?ab cd?="),
+                     "SPACE in Q encoded-text must be rejected per RFC 2047 §2 (Q alphabet would otherwise allow letters)")
     }
 
     // MARK: - Bug 1: RFC 2047 75-character limit

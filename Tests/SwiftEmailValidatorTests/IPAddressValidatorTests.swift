@@ -90,16 +90,25 @@ final class IPAddressValidatorTests: XCTestCase {
     // MARK: - Phase 3: Extended IP Address Tests
 
     func testIPv6ZoneIdentifiers() {
-        // Zone identifiers (fe80::1%eth0) are NOT valid per RFC 5321 Section 4.1.3
-        // Zone IDs are local scope identifiers that have no meaning outside the local machine
-        // and should not appear in email address literals
+        // Zone identifiers (fe80::1%eth0) are NOT valid per RFC 5321 §4.1.3.
+        // Zone IDs are local-scope identifiers that have no meaning outside
+        // the local machine and must not appear in email address literals.
+        //
+        // RFC 6874 specifies that when a zone ID appears in a URI, the '%'
+        // separator is percent-encoded as `%25` (yielding `fe80::1%25eth0`).
+        // Some callers may pass the URI form through to the email layer,
+        // so cover both the bare and percent-encoded variants.
         let zoneAddresses = [
             "fe80::1%eth0",
             "fe80::1%en0",
-            "fe80::1%1"
+            "fe80::1%1",
+            "fe80::1%25eth0",   // RFC 6874 percent-encoded form
+            "fe80::1%25en0",
+            "fe80::1%251",
         ]
         for addr in zoneAddresses {
-            XCTAssertFalse(IPAddressSyntaxValidator.matchIPv6(addr), "Zone identifier \(addr) should be rejected per RFC 5321")
+            XCTAssertFalse(IPAddressSyntaxValidator.matchIPv6(addr),
+                           "Zone identifier '\(addr)' must be rejected per RFC 5321 §4.1.3 (RFC 6874 form also rejected)")
         }
     }
 

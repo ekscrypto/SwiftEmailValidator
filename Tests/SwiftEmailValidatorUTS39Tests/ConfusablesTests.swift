@@ -12,13 +12,20 @@ final class ConfusablesTests: XCTestCase {
 
     // MARK: - Skeleton computation
 
-    func testSkeletonOfLatinIdentity() {
-        // ASCII strings should skeleton to themselves (or close to — some
-        // ASCII scalars like 'I' map to themselves in confusables.txt; key
-        // property: skeleton is deterministic and idempotent).
-        let skeleton = ConfusableSkeleton.skeleton(of: "hello")
-        XCTAssertEqual(skeleton, ConfusableSkeleton.skeleton(of: skeleton),
-                       "skeleton should be idempotent")
+    func testSkeletonCollapsesCyrillicSpoofToLatinForm() {
+        // Idempotence is exhaustively covered by
+        // ConfusablesSkeletonRegressionTests.testSkeletonIsIdempotent over
+        // every confusable source codepoint, so re-pinning it here added no
+        // signal. Replace with the load-bearing UTS #39 §4 property: the
+        // skeleton operation must collapse a confusable spoof to the same
+        // string as its target. If the table is mis-loaded or the mapping
+        // is dropped, this assertion fails immediately.
+        let latin = "paypal"
+        let spoof = "p\u{0430}ypal" // Cyrillic 'а' in position 1
+        XCTAssertNotEqual(latin, spoof, "pre-condition: strings differ at the scalar level")
+        XCTAssertEqual(ConfusableSkeleton.skeleton(of: latin),
+                       ConfusableSkeleton.skeleton(of: spoof),
+                       "Latin paypal and Cyrillic-а spoof must skeleton to the same form (UTS #39 §4)")
     }
 
     func testCyrillicSpoofIsConfusableWithLatin() {

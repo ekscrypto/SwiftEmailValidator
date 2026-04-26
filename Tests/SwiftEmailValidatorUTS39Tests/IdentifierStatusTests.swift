@@ -48,8 +48,13 @@ final class IdentifierStatusTests: XCTestCase {
             level: .moderatelyRestrictive,
             rejectRestrictedIdentifiers: true)
 
-        // "𐀀" (U+10000 LINEAR B SYLLABLE B008 A) is Restricted.
-        XCTAssertFalse(UTS39.evaluate("𐀀lias", policy: policy))
+        // Pure Linear B input — single script, so mixed-script analysis
+        // would otherwise pass at any restriction level. This isolates the
+        // `rejectRestrictedIdentifiers` flag: the only path that can reject
+        // the input is the Identifier_Status check on Linear B (Restricted).
+        // Mixing Latin in (e.g. "𐀀lias") would also fail Highly/Moderately
+        // Restrictive mixed-script analysis, masking which gate did the work.
+        XCTAssertFalse(UTS39.evaluate("𐀀𐀁𐀂", policy: policy))
     }
 
     func testEvaluateAcceptsRestrictedWhenPolicyIsLenient() {

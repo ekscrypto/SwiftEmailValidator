@@ -25,6 +25,20 @@ final class TLDDomainValidatorTests: XCTestCase {
         XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("Apple.Com"))
     }
 
+    func testAcceptsCaseInsensitiveForUnicodeULabel() {
+        // RFC 5891 §5.4 / UTS #46 §4: U-labels compare case-insensitively
+        // under Unicode default case folding. The IANA TLD list bundles the
+        // lowercase form (`бел`); the validator must accept the uppercase
+        // form (`БЕЛ`) by relying on Swift's `String.lowercased()` (which
+        // performs locale-independent Unicode default case folding).
+        // This pins that the case-insensitivity guarantee is not silently
+        // ASCII-only — a regression that switched to `.lowercased()` on a
+        // CharacterSet-restricted slice would still pass `IANA.ORG` but
+        // fail this Cyrillic case.
+        XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("example.БЕЛ"))
+        XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("example.БеЛ"))
+    }
+
     func testAcceptsTrailingRootDot() {
         XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("iana.org."))
     }
