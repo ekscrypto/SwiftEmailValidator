@@ -169,7 +169,8 @@ public final class RFC2047Coder {
     /// Encodes a string using RFC 2047 Base64 encoding with UTF-8 charset.
     ///
     /// - Parameter candidate: The string to encode
-    /// - Returns: The RFC 2047 encoded string in the format `=?utf-8?b?base64text?=`, or `nil` if encoding fails
+    /// - Returns: The RFC 2047 encoded string in the format `=?utf-8?b?base64text?=`, or `nil` if encoding fails or the
+    ///   resulting encoded-word would exceed the RFC 2047 §2 75-character cap (≈47 UTF-8 bytes of input).
     ///
     /// ## Example
     /// ```swift
@@ -182,7 +183,19 @@ public final class RFC2047Coder {
         }
         let base64 = utf8data.base64EncodedString()
             .replacingOccurrences(of: "=", with: "")
-        return "=?utf-8?b?\(base64)?="
+        let result = "=?utf-8?b?\(base64)?="
+        // RFC 2047 §2: "An 'encoded-word' may not be more than 75 characters long".
+        // The §2 grammar (delimiters, charset/encoding tokens, and encoded-text)
+        // is ASCII-only by construction, so "characters" means octets here —
+        // measure bytes, not grapheme clusters, to match the RFC's intent
+        // (`result` is all-ASCII today, so `result.count` and `result.utf8.count`
+        // agree, but `.utf8.count` makes the byte-count semantics explicit and
+        // forward-compatible). Without this guard, the encoder could emit output
+        // that the decoder (line 88) refuses, breaking encode→decode symmetry.
+        guard result.utf8.count <= 75 else {
+            return nil
+        }
+        return result
     }
     
     private static func match(regex: String, to value: String) -> [[String]] {

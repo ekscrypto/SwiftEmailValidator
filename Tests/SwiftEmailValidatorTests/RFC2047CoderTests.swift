@@ -334,6 +334,33 @@ final class RFC2047CoderTests: XCTestCase {
                      "Encoded word of 76 chars must be rejected per RFC 2047 §2 (max is 75)")
     }
 
+    func testEncode75CharLimitEnforced() {
+        // Symmetric with `testDecode75CharLimitEnforced`: the encoder must also
+        // honour the RFC 2047 §2 75-char cap so encode→decode round-trip is
+        // preserved. Overhead: "=?utf-8?b?" (10) + "?=" (2) = 12 chars, leaving
+        // 63 chars for the (unpadded) base64 payload. Base64 emits 4 chars per
+        // 3 bytes, so 63 unpadded chars carry exactly 47 input bytes (60 chars
+        // = 45 bytes + 3 chars carrying the trailing 2 bytes).
+
+        // 47 ASCII bytes → 75-byte encoded word → must succeed.
+        // Asserting `.utf8.count` (not `.count`) matches the RFC's octet-based
+        // intent and pins the encoder's all-ASCII output contract.
+        let input47 = String(repeating: "x", count: 47)
+        guard let encoded47 = RFC2047Coder.encode(input47) else {
+            XCTFail("Encoder must accept input that fits the §2 75-octet cap")
+            return
+        }
+        XCTAssertEqual(encoded47.utf8.count, 75,
+                       "47-byte input must yield exactly the §2 maximum 75-octet encoded word")
+        XCTAssertEqual(RFC2047Coder.decode(encoded47), input47,
+                       "Round-trip must hold at the boundary")
+
+        // 48 ASCII bytes → 76-char encoded word → must be rejected
+        let input48 = String(repeating: "x", count: 48)
+        XCTAssertNil(RFC2047Coder.encode(input48),
+                     "48-byte input encodes to 76 chars and must be rejected per RFC 2047 §2")
+    }
+
     func testDecodeGreedyRegexNoExtraContent() {
         // The RFC2047 regex uses (.*) which is greedy. For "=?utf-8?b?aGVsbG8=?=extra?=",
         // the greedy match captures "aGVsbG8=?=extra" as the encoded text. The '?' character

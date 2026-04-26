@@ -755,22 +755,14 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     }
 
     func testVeryLongRFC2047EncodedString() {
-        // RFC 2047 §2: encoded-word total length ≤75 chars; this test pins
-        // that the decoder rejects over-length words. The previous form was
-        // a no-op if either `encode` returned nil OR the encoded length
-        // happened to slip below 76 chars (a future encoder change could
-        // silently neuter the regression check). Force both preconditions
-        // explicitly so a regression in `encode` or in the over-length cap
-        // surfaces here, not silently elsewhere.
+        // RFC 2047 §2: encoded-word total length ≤75 chars. The encoder must
+        // refuse inputs whose encoded form would exceed the cap rather than
+        // emit a non-round-trippable blob the decoder would reject downstream.
+        // 20× "한" = 60 UTF-8 bytes → 80-char base64 payload + 12-char overhead
+        // ("=?utf-8?b?", "?=") = 92 chars total, well over 75.
         let longString = String(repeating: "한", count: 20)
-        guard let encoded = RFC2047Coder.encode(longString) else {
-            XCTFail("Encoder must produce output for valid UTF-8 input")
-            return
-        }
-        XCTAssertGreaterThan(encoded.count, 75,
-                             "Test precondition: encoded form must exceed the RFC 2047 §2 75-char cap to exercise the rejection path")
-        XCTAssertNil(RFC2047Coder.decode(encoded),
-                     "Encoded word longer than 75 chars must fail decoding per RFC 2047 §2")
+        XCTAssertNil(RFC2047Coder.encode(longString),
+                     "Encoder must reject input whose encoded form would exceed the RFC 2047 §2 75-char cap")
     }
 
     func testTotalEmailLengthLimit() {
