@@ -101,8 +101,13 @@ SwiftEmailValidator is an RFC-compliant email syntax validator supporting intern
 ### RFC / Unicode Standards Implemented
 
 - RFC 822: Standard for the format of ARPA Internet text messages
-- RFC 2047: MIME Part Three - Message header extensions for non-ASCII text
+- RFC 2047: MIME Part Three - Message header extensions for non-ASCII text (encoder enforces §2 75-octet cap)
+- RFC 3172: Management Guidelines & Operational Requirements for `.arpa` (infrastructure-only; rejected by `TLDDomainValidator`)
 - RFC 5321: Simple Mail Transfer Protocol (SMTP)
 - RFC 5322: Internet Message Format
+- RFC 5891 / 5892: IDNA2008 protocol + character properties (referenced; PVALID enforcement deferred to `domainValidator` closure)
 - RFC 6531: SMTP Extension for Internationalized Email
+- RFC 6532: Internationalized Email Headers (`EmailNormalizer.nfc(_:)` is §3.1 compliant)
+- RFC 6761 / 6762 / 7686 / 8375 / 9476: IETF Special-Use Domain Names (rejected by `TLDDomainValidator`)
 - UTS #39: Unicode Security Mechanisms (via opt-in `SwiftEmailValidatorUTS39` target)
+- UTS #46 §4: dot-mapping (U+3002 / U+FF0E / U+FF61 → ASCII '.') applied in `TLDDomainValidator.isPubliclyDeliverable(_:)`
