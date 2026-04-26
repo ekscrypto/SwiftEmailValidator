@@ -6,8 +6,8 @@
 //
 //  Default domain validator for EmailSyntaxValidator: confirms the rightmost
 //  DNS label is a currently-delegated IANA TLD and that the domain is not
-//  (and is not under) a special-use name reserved by RFC 6761 / RFC 6762 /
-//  RFC 7686 / RFC 8375 / RFC 9476.
+//  (and is not under) a special-use name reserved by RFC 3172 / RFC 6761 /
+//  RFC 6762 / RFC 7686 / RFC 8375 / RFC 9476.
 //
 
 import Foundation
@@ -30,6 +30,7 @@ import Foundation
 ///
 /// ## Special-use names rejected
 /// Per the IANA Special-Use Domain Names registry:
+/// - `.arpa` (RFC 3172 — DNS infrastructure, e.g. `in-addr.arpa`, `ip6.arpa`)
 /// - `.test` (RFC 6761 §6.2)
 /// - `.example`, `example.com`, `example.net`, `example.org` (RFC 6761 §6.5)
 /// - `.invalid` (RFC 6761 §6.4)
@@ -37,7 +38,7 @@ import Foundation
 /// - `.local` (RFC 6762 — mDNS / link-local)
 /// - `.onion` (RFC 7686 — Tor hidden services)
 /// - `.alt` (RFC 9476 — non-DNS use)
-/// - `home.arpa` (RFC 8375 — homenet)
+/// - `home.arpa` (RFC 8375 — homenet; also covered by the `.arpa` rule)
 ///
 /// Subdomains under any of these are also rejected.
 ///
@@ -63,6 +64,7 @@ public enum TLDDomainValidator {
     /// Source: IETF Special-Use Domain Names registry
     /// (`https://www.iana.org/assignments/special-use-domain-names/`).
     public static let specialUseTLDs: Set<String> = [
+        "arpa",      // RFC 3172  (DNS infrastructure: in-addr.arpa, ip6.arpa, …)
         "test",      // RFC 6761 §6.2
         "example",   // RFC 6761 §6.5
         "invalid",   // RFC 6761 §6.4
@@ -77,7 +79,7 @@ public enum TLDDomainValidator {
         "example.com",  // RFC 6761 §6.5
         "example.net",  // RFC 6761 §6.5
         "example.org",  // RFC 6761 §6.5
-        "home.arpa",    // RFC 8375
+        "home.arpa",    // RFC 8375  (also covered by .arpa specialUseTLD; kept as defensive redundancy)
     ]
 
     /// Validate `domain` as a publicly-deliverable email host.

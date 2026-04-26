@@ -68,6 +68,7 @@ final class TLDDomainValidatorTests: XCTestCase {
     // MARK: - RFC 6761 / 6762 / 7686 / 8375 / 9476 special-use names rejected
 
     func testRejectsSpecialUseTLDs() {
+        XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("foo.arpa"),       "RFC 3172")
         XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("foo.test"),       "RFC 6761 §6.2")
         XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("foo.example"),    "RFC 6761 §6.5")
         XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("foo.invalid"),    "RFC 6761 §6.4")
@@ -75,6 +76,14 @@ final class TLDDomainValidatorTests: XCTestCase {
         XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("foo.local"),      "RFC 6762 mDNS")
         XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("foo.onion"),      "RFC 7686 Tor")
         XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("foo.alt"),        "RFC 9476")
+    }
+
+    func testRejectsArpaInfrastructureSubdomains() {
+        // RFC 3172: arpa is infrastructure-only (no MTA delivery).
+        XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("foo.in-addr.arpa"))
+        XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("1.0.0.127.in-addr.arpa"))
+        XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("x.ip6.arpa"))
+        XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("iris.arpa"))
     }
 
     func testRejectsReservedExampleDomains() {
