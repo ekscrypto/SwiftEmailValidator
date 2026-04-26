@@ -95,9 +95,15 @@ public final class RFC2047Coder {
         }
         
         if encoding == "b" {
-            let padding: [String] = ["", "===", "==", "="]
-            let paddedEncodedText = "\(encodedText)\(padding[encodedText.count % 4])"
-            
+            // Base64 input length mod 4 must be 0, 2, or 3 — a residue of 1 (6 bits)
+            // cannot represent any whole byte and is always malformed. Foundation's
+            // decoder happens to reject the result anyway, but be explicit to avoid
+            // relying on that and to keep this file self-checking.
+            let residue = encodedText.count % 4
+            guard residue != 1 else { return nil }
+            let padding = String(repeating: "=", count: (4 - residue) % 4)
+            let paddedEncodedText = "\(encodedText)\(padding)"
+
             guard let encodedTextData = Data(base64Encoded: paddedEncodedText),
                   let decoded = String(data: encodedTextData, encoding: stringEncoding)
             else {

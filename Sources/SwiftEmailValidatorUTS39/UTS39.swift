@@ -32,8 +32,11 @@ public enum UTS39 {
         case singleScript
 
         /// UTS #39 §5.2.2 — Single Script, or one of the documented
-        /// multi-script whitelist combinations:
-        /// Latin + Han, Latin + Han + Hiragana + Katakana, Latin + Han + Hangul + Bopomofo.
+        /// multi-script whitelist combinations (Table 1):
+        /// - Japanese: Latin + Han + Hiragana + Katakana
+        /// - Korean:   Latin + Han + Hangul
+        /// - Chinese:  Latin + Han + Bopomofo
+        ///
         /// This is the recommended default for identifier security.
         case highlyRestrictive
 

@@ -106,6 +106,16 @@ public final class EmailSyntaxValidator {
         ///
         /// Allows Unicode characters that have been encoded using RFC 2047 MIME encoding.
         /// This enables international characters on systems that only support ASCII transport.
+        ///
+        /// > Important: RFC 2047 §5 explicitly forbids encoded-words from appearing
+        /// > anywhere inside an `addr-spec` (the `local-part@domain` production).
+        /// > This mode treats the entire candidate as a single encoded-word and
+        /// > validates the decoded form. It is therefore a **project convention**
+        /// > for transporting Unicode mailboxes through ASCII-only pipes — not a
+        /// > standards-conformant SMTPUTF8 path. Arbitrary MTAs and `addr-spec`
+        /// > parsers will reject `=?charset?...?=` in mail address fields. Use
+        /// > `.unicode` (RFC 6531) wherever the receiving infrastructure supports
+        /// > SMTPUTF8.
         case asciiWithUnicodeExtension
 
         /// Full Unicode support per RFC 6531 (SMTPUTF8).
@@ -418,6 +428,18 @@ public final class EmailSyntaxValidator {
 
     // RFC 952/1123: domain labels are LDH (letters, digits, hyphens); Unicode letters are
     // additionally allowed for IDN U-labels per RFC 5891.
+    //
+    // Known limitation: this is a *coarse* gate built on `CharacterSet.letters` (Unicode
+    // category L*) plus `[0-9-]`. RFC 5891 §4.2.3.2 actually requires PVALID-only validation
+    // against the IDNA2008 derived property tables (RFC 5892), which excludes a number of
+    // letter-category scalars (Tibetan precomposed forms, deprecated scripts, NV8/XV8
+    // codepoints, etc.). Implementing that filter inline would require shipping the IDNA
+    // property tables; the project deliberately keeps that responsibility with the
+    // `domainValidator` closure (the default `TLDDomainValidator.isPubliclyDeliverable`
+    // only checks the rightmost label against the IANA root, so non-PVALID scalars in
+    // subdomains pass this stage). Callers that need strict PVALID enforcement should run
+    // the candidate through an IDNA2008 library (e.g. Punycode round-trip) inside their
+    // own `domainValidator` closure, or pre-normalize input to ACE form.
     private static let domainLabelCharacterSet: CharacterSet = CharacterSet.letters
         .union(CharacterSet(charactersIn: "0123456789-"))
 
