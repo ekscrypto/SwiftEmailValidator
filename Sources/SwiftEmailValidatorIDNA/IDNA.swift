@@ -50,11 +50,6 @@ import SwiftEmailValidator
 ///    gershayim / Katakana-middle-dot context rules are not enforced. ZWJ
 ///    and ZWNJ are still treated as `valid` per the deviation-as-valid rule
 ///    of nontransitional processing.
-///  * **`UseSTD3ASCIIRules` enforcement at the validator level**. The
-///    bundled mapping table already classifies non-LDH ASCII as
-///    `disallowed`, so the existing TLDDomainValidator gate covers this in
-///    practice. The toggle is preserved on ``IDNA/Options`` for forward
-///    compatibility.
 ///  * **`CheckBidi`** option. Always treated as off.
 ///
 /// Callers needing those checks must layer their own validation on top of
@@ -81,10 +76,16 @@ public enum IDNA {
         /// Default `true`.
         public var checkHyphens: Bool
 
-        /// `UseSTD3ASCIIRules` per UTS #46 §4. The bundled mapping table
-        /// already classifies non-LDH ASCII as `disallowed`, so this flag
-        /// is currently advisory; it's exposed for forward compatibility
-        /// with future spec changes that may move scalars between buckets.
+        /// `UseSTD3ASCIIRules` per UTS #46 §4: when on, every ASCII scalar
+        /// in a label must be in the LDH set `[A-Za-z0-9-]`. Non-LDH ASCII
+        /// (`_`, `/`, `:`, `@`, `*`, controls, …) is rejected at label
+        /// validation, including after fullwidth-to-ASCII mapping (so
+        /// `U+FF0F` → `U+002F` is also caught) and after `xn--` decoding.
+        ///
+        /// The modern preprocessed IDNA Mapping Table marks NV8 scalars as
+        /// `valid` rather than `disallowed_STD3_*`, so this enforcement
+        /// happens explicitly in our validator rather than via the table
+        /// status alone.
         ///
         /// Default `true`.
         public var useSTD3ASCIIRules: Bool
@@ -129,7 +130,6 @@ public enum IDNA {
     ) -> String? {
         guard let mapped = IdnaProcessing.applyMapping(
             domain,
-            useSTD3ASCIIRules: options.useSTD3ASCIIRules,
             transitional: options.transitional
         ) else { return nil }
         let normalized = mapped.precomposedStringWithCanonicalMapping
@@ -156,6 +156,7 @@ public enum IDNA {
             guard IdnaProcessing.validateLabel(
                 u,
                 checkHyphens: options.checkHyphens,
+                useSTD3ASCIIRules: options.useSTD3ASCIIRules,
                 transitional: options.transitional
             ) else { return nil }
             out.append(u)

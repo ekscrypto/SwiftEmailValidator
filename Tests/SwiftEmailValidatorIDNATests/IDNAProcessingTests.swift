@@ -87,6 +87,66 @@ final class IDNAProcessingTests: XCTestCase {
         XCTAssertNil(IDNA.toAscii("a\u{202E}b.com"))
     }
 
+    // MARK: - UseSTD3ASCIIRules
+
+    /// With STD3 on (the default), every ASCII scalar in a label must be
+    /// LDH (`[A-Za-z0-9-]`). The modern preprocessed IDNA Mapping Table
+    /// classifies `_`, `/`, `:`, `@`, `*`, `<`, `>`, `"`, and the C0/DEL
+    /// controls as `valid` (with the informational `NV8` tag), so STD3
+    /// enforcement must come from the validator, not the table status.
+    func testToAsciiRejectsNonLDHASCIIWithSTD3() {
+        let nonLDH: [Character] = ["_", "/", ":", "@", "*", "<", ">", "\"", "$", "+"]
+        for c in nonLDH {
+            XCTAssertNil(IDNA.toAscii("a\(c)b.com"),
+                         "STD3 must reject ASCII '\(c)' in a label")
+        }
+        XCTAssertNil(IDNA.toAscii("a\u{0001}b.com"),
+                     "STD3 must reject C0 control U+0001")
+        XCTAssertNil(IDNA.toAscii("a\u{007F}b.com"),
+                     "STD3 must reject DEL U+007F")
+    }
+
+    /// Fullwidth-mapped non-LDH (e.g. U+FF0F → U+002F) must also be caught
+    /// by STD3, because the LDH check runs after step 1 mapping.
+    func testToAsciiRejectsFullwidthNonLDHWithSTD3() {
+        // U+FF0F FULLWIDTH SOLIDUS maps to U+002F SOLIDUS.
+        XCTAssertNil(IDNA.toAscii("a\u{FF0F}b.com"))
+        // U+FF20 FULLWIDTH COMMERCIAL AT maps to U+0040 COMMERCIAL AT.
+        XCTAssertNil(IDNA.toAscii("a\u{FF20}b.com"))
+    }
+
+    /// With STD3 off, non-LDH ASCII passes through unchanged. Useful for
+    /// callers that want UTS #46 mapping/normalization without LDH gating
+    /// (e.g. testing infrastructure, hostnames containing `_`).
+    func testToAsciiAcceptsNonLDHASCIIWithoutSTD3() {
+        let opts = IDNA.Options(useSTD3ASCIIRules: false)
+        XCTAssertEqual(IDNA.toAscii("a_b.com", options: opts), "a_b.com")
+        XCTAssertEqual(IDNA.toAscii("a/b.com", options: opts), "a/b.com")
+        XCTAssertEqual(IDNA.toAscii("a:b.com", options: opts), "a:b.com")
+    }
+
+    /// STD3 must also fire after Punycode-decoding an `xn--` label whose
+    /// decoded U-label contains non-LDH ASCII.
+    func testToAsciiRejectsXNDecodedNonLDHWithSTD3() {
+        // Encode "a_b" via Punycode → get the ACE form, then assert STD3
+        // rejects the resulting label after decode/revalidate.
+        guard let body = Punycode.encode("a_b") else {
+            return XCTFail("Punycode.encode(\"a_b\") returned nil")
+        }
+        let ace = "xn--" + body
+        XCTAssertNil(IDNA.toAscii("\(ace).com"))
+        // Same input should pass with STD3 off.
+        let opts = IDNA.Options(useSTD3ASCIIRules: false)
+        XCTAssertNotNil(IDNA.toAscii("\(ace).com", options: opts))
+    }
+
+    /// Hyphen, digits, lowercase letters — the LDH set — must continue
+    /// to round-trip cleanly with STD3 on.
+    func testToAsciiAcceptsLDHWithSTD3() {
+        XCTAssertEqual(IDNA.toAscii("a-b-c.example"), "a-b-c.example")
+        XCTAssertEqual(IDNA.toAscii("abc123.example"), "abc123.example")
+    }
+
     func testToAsciiDropsIgnoredScalars() {
         // U+00AD SOFT HYPHEN is `ignored`.
         XCTAssertEqual(IDNA.toAscii("ex\u{00AD}ample.com"), "example.com")

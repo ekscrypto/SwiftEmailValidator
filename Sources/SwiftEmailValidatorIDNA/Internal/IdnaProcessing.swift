@@ -25,9 +25,15 @@ enum IdnaProcessing {
     /// Returns the mapped string, or `nil` if any scalar maps to `.disallowed`
     /// (or a deviation under transitional mode that is itself disallowed —
     /// not currently produced by the table).
+    ///
+    /// Note: STD3 enforcement happens in ``validateLabel(_:checkHyphens:useSTD3ASCIIRules:transitional:)``
+    /// rather than here, because the modern preprocessed IDNA Mapping Table
+    /// classifies non-LDH ASCII (`_`, `/`, `:`, …) as `valid` (with an `NV8`
+    /// informational tag); enforcing STD3 requires an explicit per-scalar
+    /// check at validation time, applied to post-mapping labels (so e.g.
+    /// fullwidth U+FF0F → U+002F is also caught).
     static func applyMapping(
         _ input: String,
-        useSTD3ASCIIRules: Bool,
         transitional: Bool
     ) -> String? {
         var output = String.UnicodeScalarView()
@@ -57,13 +63,6 @@ enum IdnaProcessing {
                     output.append(scalar)
                 }
             }
-
-            // UseSTD3ASCIIRules: in this implementation, the mapping table
-            // already classifies non-LDH ASCII (e.g. `_`, `:`, `/`) as
-            // `disallowed` for the LDH range, so there's nothing additional
-            // to enforce here. The hook is kept as an explicit toggle for
-            // future spec changes that may move scalars between buckets.
-            _ = useSTD3ASCIIRules
         }
         return String(output)
     }
@@ -78,11 +77,16 @@ enum IdnaProcessing {
     ///  - if `checkHyphens`: no leading/trailing hyphen; no `--` at positions 3-4
     ///  - does not begin with a combining mark (Mn/Mc/Me)
     ///  - every scalar has status `valid` (or `deviation` in nontransitional)
+    ///  - if `useSTD3ASCIIRules`: every ASCII scalar is in the LDH set
+    ///    `[A-Za-z0-9-]` (the modern preprocessed IDNA Mapping Table marks
+    ///    non-LDH ASCII as `valid` with `NV8`, so the STD3 rule must be
+    ///    enforced separately here)
     ///
     /// Bidi and CONTEXTJ checks are intentionally not run.
     static func validateLabel(
         _ label: String,
         checkHyphens: Bool,
+        useSTD3ASCIIRules: Bool,
         transitional: Bool
     ) -> Bool {
         if label.isEmpty { return false }
@@ -112,8 +116,12 @@ enum IdnaProcessing {
             }
         }
 
-        // V4/V5: every scalar must be valid (or deviation in nontransitional).
+        // V4/V5: every scalar must be valid (or deviation in nontransitional),
+        // plus STD3 LDH enforcement on ASCII when requested.
         for s in scalars {
+            if useSTD3ASCIIRules && s.value < 0x80 && !isLDH(s.value) {
+                return false
+            }
             let entry = IdnaMappingLookup.lookup(s.value)
             switch entry.status {
             case .valid:
@@ -126,6 +134,16 @@ enum IdnaProcessing {
         }
 
         return true
+    }
+
+    /// LDH = Letter (A-Z, a-z), Digit (0-9), Hyphen-minus.
+    @inline(__always)
+    private static func isLDH(_ v: UInt32) -> Bool {
+        (v >= 0x61 && v <= 0x7A)        // a-z
+            || (v >= 0x30 && v <= 0x39) // 0-9
+            || v == 0x2D                // '-'
+            || (v >= 0x41 && v <= 0x5A) // A-Z (post-mapping these are gone, but
+                                        // validateLabel may be called directly)
     }
 
     /// UTS #46 §4 ToASCII implementation.
@@ -141,7 +159,6 @@ enum IdnaProcessing {
     ) -> String? {
         guard let mapped = applyMapping(
             input,
-            useSTD3ASCIIRules: useSTD3ASCIIRules,
             transitional: transitional
         ) else { return nil }
 
@@ -183,12 +200,14 @@ enum IdnaProcessing {
                 guard validateLabel(
                     u,
                     checkHyphens: checkHyphens,
+                    useSTD3ASCIIRules: useSTD3ASCIIRules,
                     transitional: transitional
                 ) else { return nil }
             } else {
                 guard validateLabel(
                     u,
                     checkHyphens: checkHyphens,
+                    useSTD3ASCIIRules: useSTD3ASCIIRules,
                     transitional: transitional
                 ) else { return nil }
             }
