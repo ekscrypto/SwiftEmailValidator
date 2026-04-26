@@ -78,7 +78,7 @@ final class RestrictionLevelEdgeCaseTests: XCTestCase {
 
     func testLatinPlusHangulWithoutHanIsHighlyRestrictive() {
         // {Latn, Hang} is a subset of the Korean combo {Latn, Hani, Hang}
-        // per UTS #39 §5.2.2 — subsets of whitelisted combos also pass.
+        // per UTS #39 §5.2 (Highly Restrictive bullet) — subsets of whitelisted combos also pass.
         XCTAssertTrue(UTS39.evaluate("user가", policy: highlyRestrictive))
     }
 
@@ -103,8 +103,9 @@ final class RestrictionLevelEdgeCaseTests: XCTestCase {
     // MARK: - Rejected combinations
 
     func testLatinPlusCyrillicRejectedAtEveryLevel() {
-        // Latin + Cyrillic is the canonical homograph vector; UTS #39 §5.2.3
-        // calls it out as excluded even at Moderately Restrictive.
+        // Latin + Cyrillic is the canonical homograph vector; UTS #39 §5.2
+        // (Moderately Restrictive bullet) calls it out as excluded even at
+        // that level.
         let spoof = "user\u{0430}lice" // Cyrillic а
         XCTAssertFalse(UTS39.evaluate(spoof, policy: singleScript))
         XCTAssertFalse(UTS39.evaluate(spoof, policy: highlyRestrictive))
@@ -141,6 +142,22 @@ final class RestrictionLevelEdgeCaseTests: XCTestCase {
     func testThreeNonLatinScriptsFailsModeratelyRestrictive() {
         // Arabic + Hebrew + Devanagari (no Latin) — three scripts, no combo.
         XCTAssertFalse(UTS39.evaluate("\u{0634}\u{05D0}\u{0905}", policy: moderatelyRestrictive))
+    }
+
+    func testLatinPlusNonRecommendedScriptFailsModeratelyRestrictive() {
+        // Phoenician (U+10900..U+1091B) is Identifier_Status=Restricted and is
+        // NOT a UAX #31 Recommended script. Even with the Restricted gate
+        // disabled, Moderately Restrictive must reject Latin + Phoenician
+        // because the second script is not in the Recommended candidate pool.
+        // U+10900 PHOENICIAN LETTER ALF.
+        XCTAssertFalse(UTS39.evaluate("user\u{10900}\u{10901}", policy: moderatelyRestrictive))
+    }
+
+    func testLatinPlusLimbuFailsModeratelyRestrictive() {
+        // Limbu (U+1900..U+194F) is Identifier_Status=Restricted and not a
+        // UAX #31 Recommended script. Same lenient-mode reasoning as above.
+        // U+1900 LIMBU VOWEL-CARRIER LETTER.
+        XCTAssertFalse(UTS39.evaluate("user\u{1900}\u{1901}", policy: moderatelyRestrictive))
     }
 
     func testNonLatinSingleScriptPassesModeratelyRestrictive() {

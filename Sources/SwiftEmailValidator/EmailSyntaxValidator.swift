@@ -280,7 +280,12 @@ public final class EmailSyntaxValidator {
         // RFC 5321: host must not be empty
         guard !candidate.isEmpty else { return nil }
 
-        // RFC 1035: total domain must be ≤253 octets
+        // RFC 5321 §4.5.3.1.2 caps a domain name or number at 255 octets. The
+        // 253-octet figure used here is the derived presentation-form ceiling
+        // (RFC 1035 §3.1 wire format = 255 octets including the implicit
+        // length-prefix byte of the first label and the single root-label
+        // length byte at the end; subtracting those two leaves 253 octets of
+        // dot-separated label data).
         guard candidate.utf8.count <= 253 else { return nil }
 
         // In .ascii mode use the strict LDH-only set (A-Z, a-z, 0-9, hyphen).

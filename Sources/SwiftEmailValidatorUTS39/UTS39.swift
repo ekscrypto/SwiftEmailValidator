@@ -58,13 +58,14 @@ public enum UTS39 {
     /// not exposed here because the main library already offers `.ascii`
     /// `Compatibility` for that case.
     public enum RestrictionLevel: Equatable {
-        /// UTS #39 §5.2.1 — every scalar's Script_Extensions set has a
-        /// non-empty intersection with every other scalar's. Common and
-        /// Inherited always intersect.
+        /// UTS #39 §5.2 ("Single Script" bullet) — every scalar's
+        /// Script_Extensions set has a non-empty intersection with every
+        /// other scalar's. Common and Inherited always intersect.
         case singleScript
 
-        /// UTS #39 §5.2.2 — Single Script, or one of the documented
-        /// multi-script whitelist combinations (Table 1):
+        /// UTS #39 §5.2 ("Highly Restrictive" bullet) — Single Script, or
+        /// one of the documented multi-script whitelist combinations
+        /// (Table 1):
         /// - Japanese: Latin + Han + Hiragana + Katakana
         /// - Korean:   Latin + Han + Hangul
         /// - Chinese:  Latin + Han + Bopomofo
@@ -72,9 +73,10 @@ public enum UTS39 {
         /// This is the recommended default for identifier security.
         case highlyRestrictive
 
-        /// UTS #39 §5.2.3 — Highly Restrictive, or Latin plus any single
-        /// other Recommended script (excluding Cyrillic and Greek, which
-        /// are considered too confusable with Latin to mix freely).
+        /// UTS #39 §5.2 ("Moderately Restrictive" bullet) — Highly
+        /// Restrictive, or Latin plus any single other Recommended script
+        /// (excluding Cyrillic and Greek, which are considered too
+        /// confusable with Latin to mix freely).
         case moderatelyRestrictive
     }
 

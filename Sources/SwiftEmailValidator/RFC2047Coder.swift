@@ -63,7 +63,12 @@ public final class RFC2047Coder {
         "E": 14,
         "F": 15
     ]
-    private static let rfc2047regex = #"^=\?([A-Za-z0-9-]+)\?([bBqQ])\?(.*)\?=$"#
+    // RFC 2047 §2: encoded-text = 1*<Any printable ASCII char other than "?" or SPACE>.
+    // The third group must therefore be at least one character and must not contain
+    // '?' or ' '. Allowing '.*' (the prior shape) admitted empty payloads
+    // (=?utf-8?b??=) and treated literal '?' as part of encoded-text
+    // (=?iso-8859-1?q?ab?cd?= would Q-decode to "ab?cd").
+    private static let rfc2047regex = #"^=\?([A-Za-z0-9-]+)\?([bBqQ])\?([^? ]+)\?=$"#
     private static let compiledRfc2047Regex = try? NSRegularExpression(pattern: rfc2047regex, options: [])
 
     /// Decodes an RFC 2047 encoded string.

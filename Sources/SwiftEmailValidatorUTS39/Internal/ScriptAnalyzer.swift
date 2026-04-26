@@ -45,8 +45,8 @@ enum ScriptAnalyzer {
         return false
     }
 
-    /// Whitelisted multi-script combinations for UTS #39 §5.2.2
-    /// Highly Restrictive level.
+    /// Whitelisted multi-script combinations for the Highly Restrictive level
+    /// (UTS #39 §5.2, "Highly Restrictive" bullet).
     ///
     /// - Japanese: Latin + Han + Hiragana + Katakana
     /// - Korean:   Latin + Han + Hangul
@@ -71,6 +71,27 @@ enum ScriptAnalyzer {
         ]
     }
 
+    /// UAX #31 Recommended Scripts (script-typed, i.e. excluding Common /
+    /// Inherited / Latin) minus Cyrillic and Greek, which UTS #39 §5.2 calls
+    /// out as too confusable with Latin to mix freely under Moderately
+    /// Restrictive. This is the candidate "second script" set for the
+    /// Latin+other rule. Cherokee is omitted — it is Limited_Use, not
+    /// Recommended, so it is intentionally not in the candidate pool.
+    ///
+    /// Resolved at first use via `ScriptsData.scriptCodes.firstIndex(of:)`
+    /// so that re-numbering of script IDs in regenerated data has no effect.
+    /// Codes that fail to resolve (i.e. dropped from a future UCD) are
+    /// silently skipped rather than producing a sentinel `-1` in the set.
+    private static let moderatelyRestrictiveCandidateIDs: Set<Int> = {
+        let recommendedSecondScripts = [
+            "Arab", "Armn", "Beng", "Bopo", "Deva", "Ethi", "Geor",
+            "Gujr", "Guru", "Hang", "Hani", "Hebr", "Hira", "Knda",
+            "Kana", "Khmr", "Laoo", "Mlym", "Mymr", "Orya", "Sinh",
+            "Taml", "Telu", "Thaa", "Thai", "Tibt",
+        ]
+        return Set(recommendedSecondScripts.compactMap { ScriptsData.scriptCodes.firstIndex(of: $0) })
+    }()
+
     /// Does every non-wildcard scalar in `string` have a non-empty
     /// intersection with `target`? This is the core "is the string
     /// compatible with this script set?" check: each character must be
@@ -88,7 +109,8 @@ enum ScriptAnalyzer {
         return true
     }
 
-    /// Does the string qualify as Single Script per UTS #39 §5.2.1?
+    /// Does the string qualify as Single Script per UTS #39 §5.2 ("Single
+    /// Script" bullet)?
     ///
     /// Single Script: the intersection of Script_Extensions across all
     /// non-Common/non-Inherited scalars is non-empty. A string with no
@@ -128,22 +150,14 @@ enum ScriptAnalyzer {
             for combo in highlyRestrictiveCombinations {
                 if stringCompatible(with: combo, in: string) { return true }
             }
-            // Otherwise: Latin + any single other non-excluded script.
+            // Otherwise: Latin + any one Recommended second script.
+            // Cyrillic, Greek, and non-Recommended scripts (Phoenician,
+            // Limbu, etc.) are excluded by construction of
+            // `moderatelyRestrictiveCandidateIDs` — see UTS #39 §5.2,
+            // "Moderately Restrictive" bullet.
             let latn = ScriptsData.latnID
             guard latn >= 0 else { return false }
-            let excludedIDs: Set<Int> = {
-                var s: Set<Int> = []
-                if let cyrl = ScriptsData.scriptCodes.firstIndex(of: "Cyrl") { s.insert(cyrl) }
-                if let grek = ScriptsData.scriptCodes.firstIndex(of: "Grek") { s.insert(grek) }
-                return s
-            }()
-            let commonID = ScriptsData.commonID
-            let inheritedID = ScriptsData.inheritedID
-
-            for scriptID in 0..<ScriptsData.scriptCodes.count {
-                if scriptID == latn { continue }
-                if excludedIDs.contains(scriptID) { continue }
-                if scriptID == commonID || scriptID == inheritedID { continue }
+            for scriptID in moderatelyRestrictiveCandidateIDs {
                 let target: Set<Int> = [latn, scriptID]
                 if stringCompatible(with: target, in: string) {
                     return true

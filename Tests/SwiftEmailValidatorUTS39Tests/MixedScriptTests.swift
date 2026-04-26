@@ -52,7 +52,7 @@ final class MixedScriptTests: XCTestCase {
         XCTAssertFalse(UTS39.evaluate(spoof, policy: highly))
         XCTAssertFalse(UTS39.evaluate(spoof, policy: single))
         XCTAssertFalse(UTS39.evaluate(spoof, policy: moderate),
-                       "Moderately Restrictive still rejects Latin+Cyrillic per §5.2.3")
+                       "Moderately Restrictive still rejects Latin+Cyrillic per UTS #39 §5.2 (Moderately Restrictive bullet)")
     }
 
     func testLatinGreekHomographRejected() {
@@ -60,7 +60,7 @@ final class MixedScriptTests: XCTestCase {
         let spoof = "g\u{03BF}\u{03BF}gle"
         XCTAssertFalse(UTS39.evaluate(spoof, policy: highly))
         XCTAssertFalse(UTS39.evaluate(spoof, policy: moderate),
-                       "Moderately Restrictive rejects Latin+Greek per §5.2.3")
+                       "Moderately Restrictive rejects Latin+Greek per UTS #39 §5.2 (Moderately Restrictive bullet)")
     }
 
     // MARK: - Highly Restrictive multi-script whitelist

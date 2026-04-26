@@ -238,12 +238,18 @@ final class RFC2047CoderTests: XCTestCase {
 
     // MARK: - Phase 4: Encoding Edge Cases
 
-    func testEncodeEmptyString() {
+    func testEncodeEmptyStringDoesNotRoundTrip() {
+        // The encoder still produces a syntactically-shaped wrapper for "" —
+        // namely "=?utf-8?b??=" — but RFC 2047 §2 forbids empty encoded-text
+        // (encoded-text = 1*<...>), so the decoder must reject it. This is
+        // the documented one-way edge case: encoding empty inputs is legal
+        // call-site behavior, but the resulting word is not a valid RFC 2047
+        // encoded-word and therefore must not decode back.
         let result = RFC2047Coder.encode("")
-        XCTAssertNotNil(result, "Empty string should be encodable")
-        if let encoded = result {
-            XCTAssertEqual(RFC2047Coder.decode(encoded), "", "Empty string should round-trip correctly")
-        }
+        XCTAssertEqual(result, "=?utf-8?b??=",
+                       "Encoder produces a wrapper with empty payload for empty input")
+        XCTAssertNil(RFC2047Coder.decode("=?utf-8?b??="),
+                     "Decoder must reject empty encoded-text per RFC 2047 §2 (1* repetition)")
     }
 
     func testDecodeWithMixedCaseCharset() {
@@ -444,5 +450,31 @@ final class RFC2047CoderTests: XCTestCase {
         // 0xA0 is the first byte above the C1 range (non-breaking space in ISO-8859-1) and must pass
         XCTAssertNotNil(RFC2047Coder.decode("=?iso-8859-1?q?=A0?="),
                         "0xA0 (non-breaking space, first byte above C1 range) must be accepted")
+    }
+
+    func testDecodingRejectsEmptyEncodedText() {
+        // RFC 2047 §2: encoded-text = 1*<Any printable ASCII char other than "?" or SPACE>.
+        // An empty encoded-text segment is malformed by definition.
+        XCTAssertNil(RFC2047Coder.decode("=?utf-8?b??="),
+                     "Empty Base64 encoded-text must be rejected per RFC 2047 §2 (1* repetition)")
+        XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q??="),
+                     "Empty Q encoded-text must be rejected per RFC 2047 §2 (1* repetition)")
+    }
+
+    func testDecodingRejectsLiteralQuestionMarkInEncodedText() {
+        // RFC 2047 §2: '?' is the segment delimiter and is forbidden inside encoded-text.
+        // The prior `(.*)` regex would greedily backtrack and produce decoded
+        // payloads containing a literal '?' (e.g. "ab?cd").
+        XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q?ab?cd?="),
+                     "Literal '?' inside Q encoded-text must be rejected per RFC 2047 §2")
+        XCTAssertNil(RFC2047Coder.decode("=?utf-8?b?YQ?Yg?="),
+                     "Literal '?' inside Base64 encoded-text must be rejected per RFC 2047 §2")
+    }
+
+    func testDecodingRejectsSpaceInEncodedText() {
+        // RFC 2047 §2 also bars literal SPACE from encoded-text. Q-encoders
+        // must use '_' or '=20' instead. The new `[^? ]+` group enforces this.
+        XCTAssertNil(RFC2047Coder.decode("=?iso-8859-1?q?ab cd?="),
+                     "Literal SPACE inside Q encoded-text must be rejected per RFC 2047 §2")
     }
 }
