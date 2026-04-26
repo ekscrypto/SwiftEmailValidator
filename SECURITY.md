@@ -4,11 +4,23 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.6.x   | :white_check_mark: |
-| < 1.6   | :x:                |
+| 1.7.x   | :white_check_mark: |
+| < 1.7   | :x:                |
 
-Only the 1.6.x line receives security fixes. It bundles:
+Only the 1.7.x line receives security fixes. It bundles:
 
+- **1.7.0** — opt-in `SwiftEmailValidatorIDNA` companion target. Full
+  UTS #46 §4 V1-V7 enforcement on the host portion: NFC, hyphen rules,
+  leading-combining-mark rejection, per-scalar status, `UseSTD3ASCIIRules`
+  LDH gate (post-mapping, so fullwidth `U+FF0F` → `U+002F` is also
+  caught), `VerifyDnsLength`, RFC 5893 §2 Bidi rule (V6) with
+  domain-wide trigger per §1.4, and RFC 5892 §A.1/§A.2 CONTEXTJ (V7).
+  RFC 5892 §A.3-§A.9 CONTEXTO layered on top as a default-on security
+  extension (Catalan middle dot, Greek keraia, Hebrew geresh/gershayim,
+  Katakana middle dot, mixed Arabic-Indic / Extended Arabic-Indic
+  digits). Self-contained RFC 3492 Punycode codec with overflow guards.
+  Conformance gated against the official Unicode `IdnaTestV2.txt`
+  (v17.0.0).
 - **1.6.1** — Default_Ignorable hardening (RFC 5892 §2.6) in both local-part
   and domain-label paths, leading-combining-mark rejection, empty quoted
   local-part rejection, IPv6 regex case + leading-zero fixes, RFC 2047 §2
