@@ -6,6 +6,7 @@ enum MimeParserAdapter: ValidatorAdapter {
     static let link = "https://github.com/igorrendulic/MimeEmailParser"
     static let rfcCoverage = "RFC 5322 + RFC 2047 / 6532"
     static let domainValidation = false
+    static let claimedCapabilities: Capability = [.rfc5322, .rfc5321IPLit, .rfc6531, .rfc2047]
     static let referenceMethod: ValidationMethod = .swiftEmailUnicode
 
     nonisolated(unsafe) private static let parser = MimeEmailParser()

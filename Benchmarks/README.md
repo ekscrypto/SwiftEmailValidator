@@ -32,8 +32,11 @@ Deliberately excluded:
 
 ```bash
 cd Benchmarks
-swift run -c release EmailBench              # print the table
+swift run -c release EmailBench              # print the full report
 swift run -c release EmailBench --verbose    # also list every failing case
+swift run -c release EmailBench --scope      # within-declared-scope table only
+swift run -c release EmailBench --reverse    # run competitor corpora through ours
+swift run -c release EmailBench --list       # idx → email mapping (for crash discovery)
 ```
 
 ## Skip list

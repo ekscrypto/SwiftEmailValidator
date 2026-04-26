@@ -602,26 +602,72 @@ loop used to populate the skip list.
 ² Accuracy is computed over `Passed + Failed` only. Each adapter is graded
   against the ground truth defined for its reference mode (see Methodology).
 
-### RFC 5322 scope: 11 corpus cases are not applicable to 5322-only libraries
+### What a modern email validator should support
 
-Of the 243 cases, **11 require extensions beyond RFC 5322** to validate as
-`expectedValid: true`:
+The 243-case headline above grades every library against the same superset
+expectation: a modern validator should handle the full stack of standards
+governing email syntax and Unicode safety. Concretely:
 
-* 7 × `validUnicode` (Korean, emoji, combining marks, mathematical bold,
-  mixed scripts, U+05B0 PVALID in domain — need RFC 6531 / IDNA2008)
-* 3 × `validRFC2047` (B- and Q-encoded words — need RFC 2047)
-* 1 × `validBoundary` (16 × U+1D11E MUSICAL SYMBOL G CLEF — needs RFC 6531)
+| Capability | Standard | What it covers |
+|---|---|---|
+| Core syntax | **RFC 5322** | dot-atom, quoted-string, address-literal grammar, length boundaries |
+| SMTP framing & literals | **RFC 5321** | 64-octet local-part cap, IPv4 / IPv6 address-literal grammar |
+| Internationalized mail | **RFC 6531 / 6532** | UTF-8 local-part and domain (SMTPUTF8) |
+| Encoded-word | **RFC 2047** | `=?charset?B/Q?text?=` decoding before validation |
+| Domain policy | **RFC 6761 / 6762 / 7686 / 8375 / 9476** + IANA TLD root zone | reject `.example`, `.test`, `.invalid`, `.localhost`, `.local`, `.onion`, `home.arpa`, `.alt`, and labels not present in the IANA root zone |
+| Unicode hardening | **UTS #39 / UAX #31 / RFC 6532 §3** | reject bidi controls, default-ignorable scalars, zero-width characters, leading combining marks, tag characters, supplementary-plane attacks |
 
-The other 232 cases are fully applicable to any RFC 5322-only validator,
-including every invalid-rejection test. The new Default_Ignorable spoofing
-cases added in 1.6.1 are all `expectedValid: false`, so they apply to
-5322-only adapters as well. Excluding the 11 N/A cases from both numerator
-and denominator for the strictly 5322-only adapters yields:
+A library is free to declare a narrower scope — that's what the next two
+tables surface.
 
-| Library | Within-scope passed | Within-scope failures | Accuracy (5322 scope) |
-|---|---:|---:|---:|
-| bdolewski/SwiftEmailValidator | 206 | 26 | **88.8%** (206 / 232) |
-| evanrobertson/EmailValidator (ASCII) | 203 | 29 | **87.5%** (203 / 232) |
+### Declared capability matrix
+
+| Library | RFC 5322 | RFC 5321 | RFC 6531 | RFC 2047 | Domain | Hardening |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| SwiftEmailValidator (ASCII) | ✅ | ✅ | — | — | ✅ | ✅ |
+| SwiftEmailValidator (ASCII + RFC 2047) | ✅ | ✅ | — | ✅ | ✅ | ✅ |
+| SwiftEmailValidator (Unicode) | ✅ | ✅ | ✅ | — | ✅ | ✅ |
+| evanrobertson/EmailValidator (ASCII) | ✅ | ✅ | — | — | — | — |
+| evanrobertson/EmailValidator (international) | ✅ | ✅ | ✅ | — | — | — |
+| igorrendulic/MimeEmailParser | ✅ | ✅ | ✅ | ✅ | — | — |
+| bdolewski/SwiftEmailValidator | ✅ | — | — | — | — | — |
+| jwelton/EmailValidator (NSDataDetector) | — | — | — | — | — | — |
+
+✅ means the library declares support for the standard. The `Hardening`
+column covers Unicode security mechanisms not strictly required by RFC 6531
+but expected of contemporary validators. The capability mapping is encoded
+in [`Capability.swift`](Benchmarks/Sources/EmailBench/Capability.swift) and
+the matrix is regenerated every benchmark run.
+
+### Results within declared scope
+
+For each library, test cases whose required capability falls outside what
+the library declares are excluded from both numerator and denominator. This
+isolates each library's accuracy against the standards **it claims to
+implement** — no penalty for not shipping RFC 6531 if it never claimed
+RFC 6531.
+
+| Library | In-scope passed | In-scope failed | Out-of-scope | In-scope accuracy |
+|---|---:|---:|---:|---:|
+| SwiftEmailValidator (ASCII) | 223 | 0 | 20 | **100.0%** |
+| SwiftEmailValidator (ASCII + RFC 2047) | 235 | 0 | 8 | **100.0%** |
+| SwiftEmailValidator (Unicode) | 231 | 0 | 12 | **100.0%** |
+| evanrobertson/EmailValidator (ASCII) | 130 | 4 | 107 | 97.0% |
+| evanrobertson/EmailValidator (international) | 136 | 3 | 99 | 97.8% |
+| bdolewski/SwiftEmailValidator | 95 | 3 | 145 | 96.9% |
+| igorrendulic/MimeEmailParser | 125 | 29 | 87 | 81.2% |
+| jwelton/EmailValidator (NSDataDetector) | 0 | 0 | 243 | n/a³ |
+
+³ NSDataDetector targets no documented RFC, so no cases are graded
+  in-scope. Its 56.8% headline above is a reference-mode comparison only.
+
+The headline 243-case score and the within-declared-scope score answer
+different questions. The first asks "how does this library compare to a
+modern, RFC-current email validator?" — the second asks "given what this
+library claims to implement, how reliable is it?" Both are useful: a high
+in-scope score with narrow claims tells you the library is solid within
+its lane; a low headline score with the same narrow claims tells you the
+lane itself may be too narrow for current Internet mail.
 
 ### Inputs that crash competitor libraries
 

@@ -10,6 +10,10 @@ enum JweltonEquivalentAdapter: ValidatorAdapter {
     static let link = "https://github.com/jwelton/EmailValidator"
     static let rfcCoverage = "Apple NSDataDetector (unspecified)"
     static let domainValidation = false
+    // NSDataDetector targets no documented RFC; treat as claiming nothing.
+    // Every test case will be "out of declared scope" — surfacing the headline
+    // 243-case score and noting that no per-RFC declaration is being made.
+    static let claimedCapabilities: Capability = []
     static let referenceMethod: ValidationMethod = .nsDataDetector
 
     private static let detector: NSDataDetector? = try? NSDataDetector(

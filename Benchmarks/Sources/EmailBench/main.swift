@@ -134,33 +134,22 @@ if args.contains("--reverse") {
     exit(0)
 }
 
-if args.contains("--rfc5322-scope") {
-    // A case is "N/A for an RFC 5322-only validator" when:
-    //   - its ground truth is `expectedValid == true`, AND
-    //   - validating it requires an extension beyond RFC 5322:
-    //     either RFC 6531 (non-ASCII code points) or RFC 2047 (encoded-word).
-    // Cases that expect rejection remain applicable — a 5322-only validator
-    // should still reject them.
-    var naByCategory: [TestCategory: Int] = [:]
-    var naExamples: [TestCategory: [String]] = [:]
-    for c in TestData.allTestCases {
-        guard c.expectedValid else { continue }
-        let isAscii = c.email.unicodeScalars.allSatisfy { $0.value < 0x80 }
-        let isEncodedWord = c.email.hasPrefix("=?") && c.email.hasSuffix("?=")
-        if !isAscii || isEncodedWord {
-            naByCategory[c.category, default: 0] += 1
-            naExamples[c.category, default: []].append(c.email)
-        }
-    }
-    let total = naByCategory.values.reduce(0, +)
-    print("RFC 5322-only scope analysis")
-    print("Total N/A (valid cases requiring 6531 or 2047): \(total)/\(TestData.allTestCases.count)")
-    print("")
-    for (cat, count) in naByCategory.sorted(by: { $0.value > $1.value }) {
-        print("  \(cat.rawValue): \(count)")
-        for ex in (naExamples[cat] ?? []).prefix(3) {
-            print("    - \(ex.prefix(60))")
-        }
+if args.contains("--scope") {
+    // Per-adapter "within declared scope" report. Drives the second results
+    // table in the README — strips test cases whose required capability is
+    // outside what the adapter claims, so libraries aren't penalised for
+    // standards they never claimed.
+    let cases = TestData.allTestCases
+    let reports = orderedAdapterKeys.map { runInProcess(key: $0, cases: cases) }
+    print("Within-declared-scope accuracy\n")
+    print("| Library | Claims | In-scope passed | In-scope failed | Out-of-scope | Skipped | In-scope accuracy |")
+    print("|---|---|---:|---:|---:|---:|---:|")
+    for r in reports {
+        let claims = r.claimedCapabilities.displayList.joined(separator: ", ")
+        let pct = r.claimedCapabilities.isEmpty
+            ? "n/a"
+            : String(format: "%.1f%%", r.inScopeAccuracy * 100)
+        print("| \(r.name) | \(claims.isEmpty ? "—" : claims) | \(r.inScopePassed) | \(r.inScopeFailed) | \(r.outOfScope) | \(r.skipped) | \(pct) |")
     }
     exit(0)
 }
@@ -184,49 +173,72 @@ struct AdapterReport {
     let link: String
     let rfcCoverage: String
     let domainValidation: Bool
+    let claimedCapabilities: Capability
     let passed: Int
     let failed: Int
     let skipped: Int
     let failedCases: [(email: String, expected: Bool, got: Bool, category: TestCategory)]
+    // Within-declared-scope counts: a case is in scope iff
+    // `requiredCapability(for: c)` is a subset of `claimedCapabilities`.
+    let inScopePassed: Int
+    let inScopeFailed: Int
+    let outOfScope: Int
     var total: Int { passed + failed }
     var accuracy: Double { total > 0 ? Double(passed) / Double(total) : 0 }
+    var inScopeTotal: Int { inScopePassed + inScopeFailed }
+    var inScopeAccuracy: Double { inScopeTotal > 0 ? Double(inScopePassed) / Double(inScopeTotal) : 0 }
 }
 
 func runInProcess(key: String, cases: [EmailTestCase]) -> AdapterReport {
     let adapter = adapterRegistry[key]!
     let skip = SkipList.entries[key] ?? []
     let skipSet = Set(skip.map(\.email))
+    let info = staticInfo(for: key)
     var passed = 0, failed = 0, skipped = 0
+    var inScopePassed = 0, inScopeFailed = 0, outOfScope = 0
     var failedCases: [(String, Bool, Bool, TestCategory)] = []
     for c in cases {
         if skipSet.contains(c.email) { skipped += 1; continue }
         let got = adapter.validate(c.email)
         let expected = c.expectedResult(for: adapter.referenceMethod)
-        if got == expected { passed += 1 }
-        else {
+        let inScope = info.claimedCapabilities.isSuperset(of: requiredCapability(for: c))
+        if got == expected {
+            passed += 1
+            if inScope { inScopePassed += 1 } else { outOfScope += 1 }
+        } else {
             failed += 1
             failedCases.append((c.email, expected, got, c.category))
+            if inScope { inScopeFailed += 1 } else { outOfScope += 1 }
         }
     }
-    let static_ = staticInfo(for: key)
     return AdapterReport(
-        key: key, name: static_.name, link: static_.link,
-        rfcCoverage: static_.rfcCoverage, domainValidation: static_.domainValidation,
+        key: key, name: info.name, link: info.link,
+        rfcCoverage: info.rfcCoverage, domainValidation: info.domainValidation,
+        claimedCapabilities: info.claimedCapabilities,
         passed: passed, failed: failed, skipped: skipped,
-        failedCases: failedCases.map { (email: $0.0, expected: $0.1, got: $0.2, category: $0.3) }
+        failedCases: failedCases.map { (email: $0.0, expected: $0.1, got: $0.2, category: $0.3) },
+        inScopePassed: inScopePassed, inScopeFailed: inScopeFailed, outOfScope: outOfScope
     )
 }
 
-func staticInfo(for key: String) -> (name: String, link: String, rfcCoverage: String, domainValidation: Bool) {
+struct StaticInfo {
+    let name: String
+    let link: String
+    let rfcCoverage: String
+    let domainValidation: Bool
+    let claimedCapabilities: Capability
+}
+
+func staticInfo(for key: String) -> StaticInfo {
     switch key {
-    case "OursAscii":                  return (OursAscii.name, OursAscii.link, OursAscii.rfcCoverage, OursAscii.domainValidation)
-    case "OursAsciiUnicode":           return (OursAsciiUnicode.name, OursAsciiUnicode.link, OursAsciiUnicode.rfcCoverage, OursAsciiUnicode.domainValidation)
-    case "OursUnicode":                return (OursUnicode.name, OursUnicode.link, OursUnicode.rfcCoverage, OursUnicode.domainValidation)
-    case "EvanRobertsonAscii":         return (EvanRobertsonAscii.name, EvanRobertsonAscii.link, EvanRobertsonAscii.rfcCoverage, EvanRobertsonAscii.domainValidation)
-    case "EvanRobertsonInternational": return (EvanRobertsonInternational.name, EvanRobertsonInternational.link, EvanRobertsonInternational.rfcCoverage, EvanRobertsonInternational.domainValidation)
-    case "MimeParser":                 return (MimeParserAdapter.name, MimeParserAdapter.link, MimeParserAdapter.rfcCoverage, MimeParserAdapter.domainValidation)
-    case "Bdolewski":                  return (BdolewskiAdapter.name, BdolewskiAdapter.link, BdolewskiAdapter.rfcCoverage, BdolewskiAdapter.domainValidation)
-    case "JweltonEquivalent":          return (JweltonEquivalentAdapter.name, JweltonEquivalentAdapter.link, JweltonEquivalentAdapter.rfcCoverage, JweltonEquivalentAdapter.domainValidation)
+    case "OursAscii":                  return StaticInfo(name: OursAscii.name, link: OursAscii.link, rfcCoverage: OursAscii.rfcCoverage, domainValidation: OursAscii.domainValidation, claimedCapabilities: OursAscii.claimedCapabilities)
+    case "OursAsciiUnicode":           return StaticInfo(name: OursAsciiUnicode.name, link: OursAsciiUnicode.link, rfcCoverage: OursAsciiUnicode.rfcCoverage, domainValidation: OursAsciiUnicode.domainValidation, claimedCapabilities: OursAsciiUnicode.claimedCapabilities)
+    case "OursUnicode":                return StaticInfo(name: OursUnicode.name, link: OursUnicode.link, rfcCoverage: OursUnicode.rfcCoverage, domainValidation: OursUnicode.domainValidation, claimedCapabilities: OursUnicode.claimedCapabilities)
+    case "EvanRobertsonAscii":         return StaticInfo(name: EvanRobertsonAscii.name, link: EvanRobertsonAscii.link, rfcCoverage: EvanRobertsonAscii.rfcCoverage, domainValidation: EvanRobertsonAscii.domainValidation, claimedCapabilities: EvanRobertsonAscii.claimedCapabilities)
+    case "EvanRobertsonInternational": return StaticInfo(name: EvanRobertsonInternational.name, link: EvanRobertsonInternational.link, rfcCoverage: EvanRobertsonInternational.rfcCoverage, domainValidation: EvanRobertsonInternational.domainValidation, claimedCapabilities: EvanRobertsonInternational.claimedCapabilities)
+    case "MimeParser":                 return StaticInfo(name: MimeParserAdapter.name, link: MimeParserAdapter.link, rfcCoverage: MimeParserAdapter.rfcCoverage, domainValidation: MimeParserAdapter.domainValidation, claimedCapabilities: MimeParserAdapter.claimedCapabilities)
+    case "Bdolewski":                  return StaticInfo(name: BdolewskiAdapter.name, link: BdolewskiAdapter.link, rfcCoverage: BdolewskiAdapter.rfcCoverage, domainValidation: BdolewskiAdapter.domainValidation, claimedCapabilities: BdolewskiAdapter.claimedCapabilities)
+    case "JweltonEquivalent":          return StaticInfo(name: JweltonEquivalentAdapter.name, link: JweltonEquivalentAdapter.link, rfcCoverage: JweltonEquivalentAdapter.rfcCoverage, domainValidation: JweltonEquivalentAdapter.domainValidation, claimedCapabilities: JweltonEquivalentAdapter.claimedCapabilities)
     default: fatalError("unknown adapter key \(key)")
     }
 }
@@ -263,6 +275,52 @@ print("""
   `.swiftEmailUnicode` expectations, because that mode allows non-ASCII local parts).
 
 """)
+
+// Capability matrix — what each adapter claims to implement.
+print("## Declared capability matrix\n")
+print("Each library is graded only against test cases whose required capability is one it claims.")
+print("Out-of-scope cases are excluded from the within-declared-scope accuracy below.\n")
+let capColumns: [(String, Capability)] = [
+    ("RFC 5322",   .rfc5322),
+    ("RFC 5321",   .rfc5321IPLit),
+    ("RFC 6531",   .rfc6531),
+    ("RFC 2047",   .rfc2047),
+    ("Domain¹",    .domainPolicy),
+    ("Hardening²", .unicodeHard),
+]
+print("| Library | " + capColumns.map(\.0).joined(separator: " | ") + " |")
+print("|---|" + capColumns.map { _ in ":---:" }.joined(separator: "|") + "|")
+for r in reports {
+    let row = capColumns.map { r.claimedCapabilities.contains($0.1) ? "✅" : "—" }.joined(separator: " | ")
+    print("| \(r.name) | \(row) |")
+}
+print("""
+
+¹ Domain policy = IANA TLD list + RFC 6761 / 6762 / 7686 / 8375 / 9476 special-use blocklist.
+² Hardening = UTS #39 / UAX #31 / RFC 6532 §3 — bidi controls, default-ignorable scalars,
+  zero-width characters, leading combining marks, tag characters, supplementary-plane attacks.
+
+## Results within declared scope
+
+Test cases whose required capability is outside an adapter's claims are excluded from both
+numerator and denominator. This isolates each library's performance against the standards
+**it claims to implement** — separate from the headline 243-case score, which grades against
+a modern-validator superset.
+
+| Library | In-scope passed | In-scope failed | Out-of-scope | In-scope accuracy |
+|---|---:|---:|---:|---:|
+""")
+for r in reports {
+    let pct = r.claimedCapabilities.isEmpty
+        ? "n/a³"
+        : String(format: "%.1f%%", r.inScopeAccuracy * 100)
+    print("| \(r.name) | \(r.inScopePassed) | \(r.inScopeFailed) | \(r.outOfScope) | \(pct) |")
+}
+let anyEmpty = reports.contains { $0.claimedCapabilities.isEmpty }
+if anyEmpty {
+    print("\n³ Library declares no specific RFC target, so no test cases are graded as in-scope.")
+}
+print("")
 
 let totalSkipped = reports.reduce(0) { $0 + $1.skipped }
 if totalSkipped > 0 {

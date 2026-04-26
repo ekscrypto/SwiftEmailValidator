@@ -9,6 +9,7 @@ enum BdolewskiAdapter: ValidatorAdapter {
     static let link = "https://github.com/bdolewski/SwiftEmailValidator"
     static let rfcCoverage = "RFC 5322 (regex)"
     static let domainValidation = false
+    static let claimedCapabilities: Capability = [.rfc5322]
     static let referenceMethod: ValidationMethod = .swiftEmailAscii
 
     private static let predicate: NSPredicate = {
