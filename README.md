@@ -586,25 +586,17 @@ loop used to populate the skip list.
 
 ### Results (243-case corpus)
 
-| Library | Passed | Failed | Skipped¹ | Accuracy² |
-|---|---:|---:|---:|---:|
-| SwiftEmailValidator (Unicode) | **243** | 0 | 0 | **100.0%** |
-| SwiftEmailValidator (ASCII + RFC 2047) | 235 | 8 | 0 | 96.7% |
-| SwiftEmailValidator (ASCII) | 232 | 11 | 0 | 95.5% |
-| bdolewski/SwiftEmailValidator | 206 | 37 | 0 | 84.8% |
-| evanrobertson/EmailValidator (ASCII) | 203 | 38 | 2 | 84.2% |
-| igorrendulic/MimeEmailParser | 197 | 44 | 2 | 81.7% |
-| evanrobertson/EmailValidator (international) | 151 | 87 | 5 | 63.4% |
-| jwelton/EmailValidator (NSDataDetector) | 138 | 105 | 0 | 56.8% |
-
-¹ Inputs that crash the library with Swift `fatalError`. Excluded from the
-  accuracy denominator. Details below.
-² Accuracy is computed over `Passed + Failed` only. Each adapter is graded
-  against the ground truth defined for its reference mode (see Methodology).
+Each library is graded two ways: against only the cases inside the standards
+**it declares it implements** (`In-scope accuracy`), and against the full
+superset of modern requirements (`Modern accuracy`). The two columns sit
+side-by-side in the [results table below](#results-within-declared-scope) so
+"reliable within its lane" and "covers a modern validator's responsibilities"
+are visible at a glance. The capability framework that grounds those two
+views follows.
 
 ### What a modern email validator should support
 
-The 243-case headline above grades every library against the same superset
+The `Modern accuracy` column grades every library against the same superset
 expectation: a modern validator should handle the full stack of standards
 governing email syntax and Unicode safety. Concretely:
 
@@ -660,7 +652,7 @@ RFC 6531.
 
 ³ NSDataDetector targets no documented RFC, so no cases are graded in-scope. Its `Modern accuracy` is a reference-mode comparison only.
 
-⁴ `Modern accuracy` re-states the headline 243-case score — `passed ÷ (passed + failed)`, skipped excluded — so the two views sit side-by-side. The `In-scope accuracy` column answers "given what this library claims to implement, how reliable is it?" while `Modern accuracy` answers "how much of a modern, RFC-current email validator does it actually cover?". A library can have a high in-scope score with a low modern score — that means it is solid within its lane, but the lane itself is narrow for current Internet mail.
+⁴ `Modern accuracy` is `passed ÷ (passed + failed)` over the full 243-case corpus (skipped excluded). The `In-scope accuracy` column answers "given what this library claims to implement, how reliable is it?" while `Modern accuracy` answers "how much of a modern, RFC-current email validator does it actually cover?". A library can have a high in-scope score with a low modern score — that means it is solid within its lane, but the lane itself is narrow for current Internet mail.
 
 ### Inputs that crash competitor libraries
 
