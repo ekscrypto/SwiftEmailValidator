@@ -426,8 +426,10 @@ public final class EmailSyntaxValidator {
         .subtracting(unicodeSpaceChars) // Exclude Unicode space-like chars (Zs category) — spoofing prevention
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
-    // RFC 952/1123: domain labels are LDH (letters, digits, hyphens); Unicode letters are
-    // additionally allowed for IDN U-labels per RFC 5891.
+    // RFC 952/1123: domain labels are LDH (letters, digits, hyphens). RFC 5891 additionally
+    // permits a Unicode subset (PVALID per RFC 5892) for IDN U-labels; this gate approximates
+    // that with `CharacterSet.letters` (Unicode category L*) — strictly broader than PVALID,
+    // see the "Known limitation" note below.
     //
     // Known limitation: this is a *coarse* gate built on `CharacterSet.letters` (Unicode
     // category L*) plus `[0-9-]`. RFC 5891 §4.2.3.2 actually requires PVALID-only validation
