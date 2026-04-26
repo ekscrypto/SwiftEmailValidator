@@ -572,11 +572,11 @@ Recorded with the specific `fatalError` root cause, keyed by exact input:
 | igorrendulic/MimeEmailParser | `=?utf-8?B?7?=` | `fatalError` decoding truncated base64 inside RFC 2047 encoded-word |
 
 SwiftEmailValidator, bdolewski, and jwelton-equivalent (NSDataDetector) did
-not crash on any of the 195 inputs.
+not crash on any of the 243 inputs.
 
 ### Reverse check — running competitor test corpora through SwiftEmailValidator
 
-Beyond our own 195-case corpus, the harness also runs each competitor's
+Beyond our own 243-case corpus, the harness also runs each competitor's
 **own test assertions** through our library to surface places where we
 disagree with what they themselves claim is valid or invalid. Extract the
 test corpora from each competitor's repo (evanrobertson: 96 cases,
@@ -633,7 +633,7 @@ swift run -c release EmailBench --reverse
 
 ### Caveat
 
-These numbers reflect the 195 inputs in the SwiftEmailValidator corpus and
+These numbers reflect the 243 inputs in the SwiftEmailValidator corpus and
 the reference-mode mapping described above. A different corpus, or a
 different choice of reference mode per adapter, would produce different
 scores. The full test data and the adapter definitions are in
