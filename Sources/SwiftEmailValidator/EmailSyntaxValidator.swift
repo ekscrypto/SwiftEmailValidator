@@ -406,13 +406,16 @@ public final class EmailSyntaxValidator {
     // every code point with Default_Ignorable=True is DISALLOWED in IDNA2008 — they produce no
     // visible glyph and enable the same spoofing class as zero-width / variation-selector chars.
     // The local-part path already gates most of these via `CharacterSet.letters` exclusions, but
-    // category-Lo fillers (U+3164, U+115F-U+1160, U+FFA0) and category-Mn variation-class scalars
-    // (U+17B4-U+17B5, U+180B-U+180D) flow through CharacterSet.letters on the *domain* path.
+    // category-Lo fillers (U+3164, U+115F-U+1160, U+FFA0), category-Mn variation-class scalars
+    // (U+17B4-U+17B5, U+180B-U+180D), and U+034F COMBINING GRAPHEME JOINER (Mn, attaches to a
+    // base scalar invisibly) flow through CharacterSet.letters on the *domain* path. U+034F also
+    // bypasses the local-part filters because it lives in nonAsciiBmpLow and is not category Lo/Mc.
     // U+05B0 HEBREW POINT SHEVA is intentionally NOT here: it is PVALID under IDNA2008 and a
     // legitimate Hebrew vowel point, even though it shares General_Category=Mn with the
     // variation selectors.
     private static let defaultIgnorableExtras: CharacterSet =
-        CharacterSet(charactersIn: Unicode.Scalar(0x061C)!...Unicode.Scalar(0x061C)!) // U+061C ARABIC LETTER MARK
+        CharacterSet(charactersIn: Unicode.Scalar(0x034F)!...Unicode.Scalar(0x034F)!) // U+034F COMBINING GRAPHEME JOINER (Mn, Default_Ignorable)
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x061C)!...Unicode.Scalar(0x061C)!)) // U+061C ARABIC LETTER MARK
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x115F)!...Unicode.Scalar(0x1160)!)) // U+115F/U+1160 HANGUL CHOSEONG/JUNGSEONG FILLER
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x17B4)!...Unicode.Scalar(0x17B5)!)) // U+17B4/U+17B5 KHMER VOWEL INHERENT AQ/AA
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x180B)!...Unicode.Scalar(0x180E)!)) // U+180B-U+180D MONGOLIAN FVS-1/2/3, U+180E MONGOLIAN VOWEL SEPARATOR
@@ -539,6 +542,21 @@ public final class EmailSyntaxValidator {
             || (value >= 0xE0000 && value <= 0x10FFFF)
     }
 
+    /// Combining marks (General_Category Mn / Mc / Me) at the start of a label have no preceding
+    /// base scalar to attach to and produce ill-formed Unicode. Per RFC 5891 §4.2.3.2 / IDNA2008
+    /// labels, a leading combining mark is invalid; the same principle applies to email local-part
+    /// labels for spoofing prevention (a label consisting only of combining marks renders as no
+    /// visible glyph or as glyphs attached to the wrong base in a list of addresses).
+    private static func startsWithCombiningMark(_ label: Substring) -> Bool {
+        guard let first = label.unicodeScalars.first else { return false }
+        switch first.properties.generalCategory {
+        case .nonspacingMark, .spacingMark, .enclosingMark:
+            return true
+        default:
+            return false
+        }
+    }
+
     private static func extractDotAtom(_ candidate: String, compatibility: Compatibility) -> String? {
         guard !candidate.hasPrefix("\""),
               let atRange = candidate.range(of: "@")
@@ -561,6 +579,7 @@ public final class EmailSyntaxValidator {
               !dotAtom.hasSuffix("."),
               dotAtom.components(separatedBy: ".").allSatisfy({ label in
                   label.count > 0
+                      && !startsWithCombiningMark(Substring(label))
                       && label.unicodeScalars.allSatisfy({ allowedCharacterSet.contains($0) })
                       && !label.unicodeScalars.contains(where: isRejectedSupplementaryScalar)
               })

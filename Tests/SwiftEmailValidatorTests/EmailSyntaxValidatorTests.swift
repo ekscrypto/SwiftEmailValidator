@@ -437,13 +437,52 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     func testLocalPartRejectsAdditionalDefaultIgnorables() {
         // Mirror coverage on the local-part path: each scalar that defaultIgnorableExtras
         // newly excludes must be rejected in the dot-atom local part as well.
-        for scalar: UInt32 in [0x061C, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x3164, 0xFFA0] {
+        for scalar: UInt32 in [0x034F, 0x061C, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x3164, 0xFFA0] {
             let s = String(Unicode.Scalar(scalar)!)
             XCTAssertNil(
                 EmailSyntaxValidator.mailbox(from: "user\(s)@site.com", compatibility: .unicode, domainValidator: comOnlyDomainValidator),
                 "Local part must reject U+\(String(scalar, radix: 16, uppercase: true)) (Default_Ignorable, RFC 5892 §2.6)"
             )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"a\(s)b\"@site.com", compatibility: .unicode, domainValidator: comOnlyDomainValidator),
+                "Quoted local part must reject U+\(String(scalar, radix: 16, uppercase: true)) (Default_Ignorable, RFC 5892 §2.6)"
+            )
         }
+    }
+
+    func testLocalPartRejectsLabelStartingWithCombiningMark() {
+        // RFC 5891 §4.2.3.2 / IDNA2008: a leading combining mark has no base scalar to attach to
+        // and produces ill-formed Unicode. Email local-part labels must enforce the same rule to
+        // avoid "purely-invisible" addresses (e.g. lone U+0301 renders as nothing in isolation).
+        let combiningMarks: [(UInt32, String)] = [
+            (0x0301, "COMBINING ACUTE ACCENT (Mn)"),
+            (0x0302, "COMBINING CIRCUMFLEX ACCENT (Mn)"),
+            (0x0303, "COMBINING TILDE (Mn)"),
+            (0x0489, "COMBINING CYRILLIC MILLIONS SIGN (Me)"),
+            (0x0903, "DEVANAGARI SIGN VISARGA (Mc)"),
+        ]
+        for (scalar, label) in combiningMarks {
+            let s = String(Unicode.Scalar(scalar)!)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\(s)@site.com", compatibility: .unicode, domainValidator: comOnlyDomainValidator),
+                "Local part must reject lone leading U+\(String(scalar, radix: 16, uppercase: true)) — \(label)"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user.\(s)bar@site.com", compatibility: .unicode, domainValidator: comOnlyDomainValidator),
+                "Sub-label after dot must reject leading U+\(String(scalar, radix: 16, uppercase: true)) — \(label)"
+            )
+        }
+        // Multiple combining marks at start (no base): still rejected on the first mark.
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "\u{0301}\u{0302}\u{0303}@site.com", compatibility: .unicode, domainValidator: comOnlyDomainValidator),
+            "Local part of three combining marks (no base) must be rejected"
+        )
+        // Sanity: combining mark *after* a base scalar in the same label is still accepted
+        // (e.g. "á" written as "a" + U+0301). This is legitimate Unicode.
+        XCTAssertNotNil(
+            EmailSyntaxValidator.mailbox(from: "a\u{0301}@site.com", compatibility: .unicode, domainValidator: comOnlyDomainValidator),
+            "Combining mark after a base scalar must remain accepted (legitimate accent)"
+        )
     }
 
     // MARK: - Phase 2: Combined Feature Tests
