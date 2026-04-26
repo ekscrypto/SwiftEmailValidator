@@ -303,6 +303,12 @@ public final class EmailSyntaxValidator {
                 && !s.hasPrefix("-")     // RFC 1123: no leading hyphen
                 && !s.hasSuffix("-")     // RFC 1123: no trailing hyphen
                 && s.unicodeScalars.allSatisfy({ labelCharacterSet.contains($0) })
+                // Belt-and-suspenders: `CharacterSet.letters` on Darwin includes M* category,
+                // which lets supplementary-plane variation selectors (e.g. U+E0100 VS-17 in the
+                // SSP) pass `.contains(...)`. Apply the same supplementary-scalar rejection used
+                // on the local-part path. The whole SSP/PUA/Tags region is rejected — see the
+                // helper for the §23.7 noncharacter coverage.
+                && !s.unicodeScalars.contains(where: isRejectedSupplementaryScalar)
         }) else {
             return nil
         }
@@ -395,6 +401,24 @@ public final class EmailSyntaxValidator {
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x205F)!...Unicode.Scalar(0x205F)!)) // U+205F MEDIUM MATHEMATICAL SPACE
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x3000)!...Unicode.Scalar(0x3000)!)) // U+3000 IDEOGRAPHIC SPACE
 
+    // Additional Default_Ignorable_Code_Point=True BMP scalars not already covered by
+    // zeroWidthAndInvisibleChars / bidiFormattingChars / deprecatedFormatChars. Per RFC 5892 §2.6,
+    // every code point with Default_Ignorable=True is DISALLOWED in IDNA2008 — they produce no
+    // visible glyph and enable the same spoofing class as zero-width / variation-selector chars.
+    // The local-part path already gates most of these via `CharacterSet.letters` exclusions, but
+    // category-Lo fillers (U+3164, U+115F-U+1160, U+FFA0) and category-Mn variation-class scalars
+    // (U+17B4-U+17B5, U+180B-U+180D) flow through CharacterSet.letters on the *domain* path.
+    // U+05B0 HEBREW POINT SHEVA is intentionally NOT here: it is PVALID under IDNA2008 and a
+    // legitimate Hebrew vowel point, even though it shares General_Category=Mn with the
+    // variation selectors.
+    private static let defaultIgnorableExtras: CharacterSet =
+        CharacterSet(charactersIn: Unicode.Scalar(0x061C)!...Unicode.Scalar(0x061C)!) // U+061C ARABIC LETTER MARK
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x115F)!...Unicode.Scalar(0x1160)!)) // U+115F/U+1160 HANGUL CHOSEONG/JUNGSEONG FILLER
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x17B4)!...Unicode.Scalar(0x17B5)!)) // U+17B4/U+17B5 KHMER VOWEL INHERENT AQ/AA
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x180B)!...Unicode.Scalar(0x180E)!)) // U+180B-U+180D MONGOLIAN FVS-1/2/3, U+180E MONGOLIAN VOWEL SEPARATOR
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x3164)!...Unicode.Scalar(0x3164)!)) // U+3164 HANGUL FILLER
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0xFFA0)!...Unicode.Scalar(0xFFA0)!)) // U+FFA0 HALFWIDTH HANGUL FILLER
+
     // Note: CharacterSet.inverted doesn't properly include supplementary planes (U+10000+).
     // Using .inverted on an ASCII-range set also leaks supplementary scalars into the result on
     // some Foundation versions, which then causes the .subtracting() corruption bug (see below).
@@ -429,26 +453,41 @@ public final class EmailSyntaxValidator {
         .subtracting(zeroWidthAndInvisibleChars) // Exclude invisible format characters (spoofing prevention)
         .subtracting(unicodeNonCharacters) // Exclude permanently-reserved Unicode noncharacters (§23.7)
         .subtracting(unicodeSpaceChars) // Exclude Unicode space-like chars (Zs category) — spoofing prevention
+        .subtracting(defaultIgnorableExtras) // Exclude additional Default_Ignorable BMP scalars (RFC 5892 §2.6)
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
     // RFC 952/1123: domain labels are LDH (letters, digits, hyphens). RFC 5891 additionally
     // permits a Unicode subset (PVALID per RFC 5892) for IDN U-labels; this gate approximates
-    // that with `CharacterSet.letters` (Unicode category L*) — strictly broader than PVALID,
-    // see the "Known limitation" note below.
+    // that with `CharacterSet.letters` (Unicode categories L* AND M* on Darwin) — strictly
+    // broader than PVALID, see the "Known limitation" note below.
     //
-    // Known limitation: this is a *coarse* gate built on `CharacterSet.letters` (Unicode
-    // category L*) plus `[0-9-]`. RFC 5891 §4.2.3.2 actually requires PVALID-only validation
-    // against the IDNA2008 derived property tables (RFC 5892), which excludes a number of
-    // letter-category scalars (Tibetan precomposed forms, deprecated scripts, NV8/XV8
-    // codepoints, etc.). Implementing that filter inline would require shipping the IDNA
-    // property tables; the project deliberately keeps that responsibility with the
-    // `domainValidator` closure (the default `TLDDomainValidator.isPubliclyDeliverable`
-    // only checks the rightmost label against the IANA root, so non-PVALID scalars in
-    // subdomains pass this stage). Callers that need strict PVALID enforcement should run
-    // the candidate through an IDNA2008 library (e.g. Punycode round-trip) inside their
-    // own `domainValidator` closure, or pre-normalize input to ACE form.
+    // Defense-in-depth subtractions: `CharacterSet.letters` lets through every Default_Ignorable
+    // letter-class scalar (HANGUL FILLER U+3164, HALFWIDTH HANGUL FILLER U+FFA0, HANGUL
+    // CHOSEONG/JUNGSEONG FILLERS U+115F-U+1160) and every Mn variation-class scalar
+    // (VARIATION SELECTORS U+FE00-U+FE0F, MONGOLIAN FVS U+180B-U+180D, KHMER VOWEL INHERENT
+    // U+17B4-U+17B5). All of these are DISALLOWED by RFC 5892 §2.6 and produce no visible
+    // glyph — they are exactly the same spoofing class blocked from the local part by
+    // zeroWidthAndInvisibleChars / defaultIgnorableExtras. Subtract them here too so that the
+    // `extractHost` per-label loop's `labelCharacterSet.contains(...)` check rejects them
+    // even when the caller's `domainValidator` closure is permissive (e.g. intranet override).
+    // Note: U+05B0 HEBREW POINT SHEVA and other PVALID combining marks are intentionally NOT
+    // excluded — they are legitimate vowel points in real-world Hebrew/Arabic/Indic labels.
+    //
+    // Known limitation: this is still a *coarse* gate built on `CharacterSet.letters` (Unicode
+    // category L*/M*) plus `[0-9-]` minus the BMP exclusions above. RFC 5891 §4.2.3.2 actually
+    // requires PVALID-only validation against the IDNA2008 derived property tables (RFC 5892),
+    // which excludes a number of letter-category scalars (Tibetan precomposed forms, deprecated
+    // scripts, NV8/XV8 codepoints, etc.). Implementing that filter inline would require shipping
+    // the IDNA property tables; the project deliberately keeps that responsibility with the
+    // `domainValidator` closure (the default `TLDDomainValidator.isPubliclyDeliverable` only
+    // checks the rightmost label against the IANA root, so non-PVALID scalars in subdomains
+    // pass this stage). Callers that need strict PVALID enforcement should run the candidate
+    // through an IDNA2008 library (e.g. Punycode round-trip) inside their own `domainValidator`
+    // closure, or pre-normalize input to ACE form.
     private static let domainLabelCharacterSet: CharacterSet = CharacterSet.letters
         .union(CharacterSet(charactersIn: "0123456789-"))
+        .subtracting(zeroWidthAndInvisibleChars) // covers U+FE00-U+FE0F variation selectors (Mn)
+        .subtracting(defaultIgnorableExtras) // covers U+3164/U+115F/U+FFA0 fillers (Lo) + Mongolian/Khmer (Mn)
 
     // Strict ASCII LDH set used when compatibility == .ascii.
     // Punycode ACE labels (xn--…) are naturally LDH and pass this check without special handling.
@@ -475,6 +514,7 @@ public final class EmailSyntaxValidator {
         .subtracting(zeroWidthAndInvisibleChars) // Exclude invisible format characters (spoofing prevention)
         .subtracting(unicodeNonCharacters) // Exclude permanently-reserved Unicode noncharacters (§23.7)
         .subtracting(unicodeSpaceChars) // Exclude Unicode space-like chars (Zs category) — spoofing prevention
+        .subtracting(defaultIgnorableExtras) // Exclude additional Default_Ignorable BMP scalars (RFC 5892 §2.6)
         .union(supplementaryPlanes) // Supplementary planes (emoji, etc.) - MUST BE LAST (after subtractions)
 
     /// Belt-and-suspenders guard for supplementary-plane scalars that must be rejected from

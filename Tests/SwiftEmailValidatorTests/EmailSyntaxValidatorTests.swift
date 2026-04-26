@@ -338,6 +338,114 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: c1End, compatibility: .unicode), "C1 control U+009F should be rejected per RFC 5198")
     }
 
+    // MARK: - Phase 2: Domain-label spoofing-class scalars (RFC 5892 §2.6 Default_Ignorable)
+    //
+    // `CharacterSet.letters` on Darwin includes Unicode General Categories L* AND M*, so
+    // category-Lo Hangul fillers and category-Mn variation selectors flow through the
+    // domain-label gate even though RFC 5892 §2.6 lists them as DISALLOWED in IDNA2008.
+    // These tests use a permissive `domainValidator` to isolate label-character validation
+    // from the rightmost-TLD lookup; the scalar must be rejected by `extractHost` itself.
+
+    func testDomainRejectsHangulFiller() {
+        // U+3164 HANGUL FILLER — Lo, Default_Ignorable, invisible glyph.
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@exam\u{3164}ple.com", compatibility: .unicode, domainValidator: permissive),
+            "U+3164 HANGUL FILLER must be rejected in domain labels (RFC 5892 §2.6 Default_Ignorable)"
+        )
+    }
+
+    func testDomainRejectsVariationSelector16() {
+        // U+FE0F VARIATION SELECTOR-16 — Mn, Default_Ignorable. Foundation's
+        // CharacterSet.letters includes M*, so without an explicit exclusion this passed.
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@example\u{FE0F}.com", compatibility: .unicode, domainValidator: permissive),
+            "U+FE0F VS-16 must be rejected in domain labels (Mn variation selector / Default_Ignorable)"
+        )
+    }
+
+    func testDomainRejectsSupplementaryVariationSelector() {
+        // U+E0100 VARIATION SELECTOR-17 — Mn, in the SSP (Tags + VS-Supplement block).
+        // Foundation's CharacterSet.letters incorrectly reports SSP variation selectors
+        // as members; only the per-scalar `isRejectedSupplementaryScalar` guard catches it.
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@example\u{E0100}.com", compatibility: .unicode, domainValidator: permissive),
+            "U+E0100 VS-17 must be rejected in domain labels (SSP variation selector)"
+        )
+    }
+
+    func testDomainRejectsMongolianFreeVariationSelectors() {
+        // U+180B-U+180D MONGOLIAN FVS — Mn, Default_Ignorable.
+        let permissive: (String) -> Bool = { _ in true }
+        for scalar: UInt32 in [0x180B, 0x180C, 0x180D] {
+            let s = String(Unicode.Scalar(scalar)!)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user@exam\(s)ple.com", compatibility: .unicode, domainValidator: permissive),
+                "U+\(String(scalar, radix: 16, uppercase: true)) MONGOLIAN FVS must be rejected in domain labels"
+            )
+        }
+    }
+
+    func testDomainRejectsHangulChoseongFiller() {
+        // U+115F HANGUL CHOSEONG FILLER, U+1160 HANGUL JUNGSEONG FILLER — Lo, Default_Ignorable.
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@exam\u{115F}ple.com", compatibility: .unicode, domainValidator: permissive),
+            "U+115F HANGUL CHOSEONG FILLER must be rejected in domain labels"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@exam\u{1160}ple.com", compatibility: .unicode, domainValidator: permissive),
+            "U+1160 HANGUL JUNGSEONG FILLER must be rejected in domain labels"
+        )
+    }
+
+    func testDomainRejectsKhmerVowelInherent() {
+        // U+17B4-U+17B5 KHMER VOWEL INHERENT AQ/AA — Mn, Default_Ignorable.
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@exam\u{17B4}ple.com", compatibility: .unicode, domainValidator: permissive),
+            "U+17B4 KHMER VOWEL INHERENT AQ must be rejected in domain labels"
+        )
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@exam\u{17B5}ple.com", compatibility: .unicode, domainValidator: permissive),
+            "U+17B5 KHMER VOWEL INHERENT AA must be rejected in domain labels"
+        )
+    }
+
+    func testDomainRejectsHalfwidthHangulFiller() {
+        // U+FFA0 HALFWIDTH HANGUL FILLER — Lo, Default_Ignorable.
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@exam\u{FFA0}ple.com", compatibility: .unicode, domainValidator: permissive),
+            "U+FFA0 HALFWIDTH HANGUL FILLER must be rejected in domain labels"
+        )
+    }
+
+    func testDomainAcceptsHebrewSheva() {
+        // U+05B0 HEBREW POINT SHEVA is a legitimate Hebrew vowel point — Mn category,
+        // PVALID under IDNA2008. It must NOT be over-rejected when we tighten the gate
+        // against Mn variation selectors / fillers. This is the "false-positive" guard
+        // that ensures we excluded only Default_Ignorable scalars, not all of Category Mn.
+        let permissive: (String) -> Bool = { _ in true }
+        let result = EmailSyntaxValidator.mailbox(from: "user@exam\u{05B0}ple.com", compatibility: .unicode, domainValidator: permissive)
+        XCTAssertEqual(result?.host, .domain("exam\u{05B0}ple.com"),
+                       "U+05B0 HEBREW POINT SHEVA must be accepted in domain labels (PVALID under IDNA2008)")
+    }
+
+    func testLocalPartRejectsAdditionalDefaultIgnorables() {
+        // Mirror coverage on the local-part path: each scalar that defaultIgnorableExtras
+        // newly excludes must be rejected in the dot-atom local part as well.
+        for scalar: UInt32 in [0x061C, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x3164, 0xFFA0] {
+            let s = String(Unicode.Scalar(scalar)!)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(s)@site.com", compatibility: .unicode, domainValidator: comOnlyDomainValidator),
+                "Local part must reject U+\(String(scalar, radix: 16, uppercase: true)) (Default_Ignorable, RFC 5892 §2.6)"
+            )
+        }
+    }
+
     // MARK: - Phase 2: Combined Feature Tests
 
     func testRFC2047EncodedWithIPv4AddressLiteral() {
