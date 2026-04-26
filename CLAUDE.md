@@ -26,7 +26,7 @@ swift test --filter SwiftEmailValidatorUTS39Tests
 
 ## DemoApp
 
-The `DemoApp/` directory contains a SwiftUI iOS app that compares email validation methods across ~150 test cases. Open `DemoApp/EmailValidation.xcodeproj` in Xcode to build and run on iOS Simulator.
+The `DemoApp/` directory contains a SwiftUI iOS app that compares email validation methods across ~240 test cases. Open `DemoApp/EmailValidation.xcodeproj` in Xcode to build and run on iOS Simulator.
 
 ## Benchmarks
 

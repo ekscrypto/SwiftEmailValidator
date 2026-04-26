@@ -1,6 +1,6 @@
 # EmailBench — competitor comparison harness
 
-A standalone Swift Package that runs SwiftEmailValidator's 195-case DemoApp
+A standalone Swift Package that runs SwiftEmailValidator's 243-case DemoApp
 corpus against a set of other Swift email validation libraries and prints a
 Markdown-formatted accuracy table.
 
