@@ -377,9 +377,9 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     }
 
     func testDomainRejectsMongolianFreeVariationSelectors() {
-        // U+180B-U+180D MONGOLIAN FVS — Mn, Default_Ignorable.
+        // U+180B-U+180D MONGOLIAN FVS-1/2/3 + U+180F MONGOLIAN FVS-4 (Unicode 14.0) — Mn, Default_Ignorable.
         let permissive: (String) -> Bool = { _ in true }
-        for scalar: UInt32 in [0x180B, 0x180C, 0x180D] {
+        for scalar: UInt32 in [0x180B, 0x180C, 0x180D, 0x180F] {
             let s = String(Unicode.Scalar(scalar)!)
             XCTAssertNil(
                 EmailSyntaxValidator.mailbox(from: "user@exam\(s)ple.com", compatibility: .unicode, domainValidator: permissive),
@@ -423,6 +423,21 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         )
     }
 
+    func testDomainRejectsBmpReservedDefaultIgnorables() {
+        // U+FFF0-U+FFF8 reserved (Cn, Default_Ignorable per UCD DerivedCoreProperties; RFC 5892
+        // §2.6 DISALLOWED). Domain path already rejects via CharacterSet.letters not containing
+        // Cn — this test pins that contract so a future widening of letters doesn't silently
+        // unfix the gap.
+        let permissive: (String) -> Bool = { _ in true }
+        for scalar: UInt32 in [0xFFF0, 0xFFF4, 0xFFF8] {
+            let s = String(Unicode.Scalar(scalar)!)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user@exam\(s)ple.com", compatibility: .unicode, domainValidator: permissive),
+                "U+\(String(scalar, radix: 16, uppercase: true)) reserved Cn DI must be rejected in domain labels"
+            )
+        }
+    }
+
     func testDomainAcceptsHebrewSheva() {
         // U+05B0 HEBREW POINT SHEVA is a legitimate Hebrew vowel point — Mn category,
         // PVALID under IDNA2008. It must NOT be over-rejected when we tighten the gate
@@ -437,7 +452,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     func testLocalPartRejectsAdditionalDefaultIgnorables() {
         // Mirror coverage on the local-part path: each scalar that defaultIgnorableExtras
         // newly excludes must be rejected in the dot-atom local part as well.
-        for scalar: UInt32 in [0x034F, 0x061C, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x3164, 0xFFA0] {
+        for scalar: UInt32 in [0x034F, 0x061C, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x180F, 0x3164, 0xFFA0, 0xFFF0, 0xFFF1, 0xFFF2, 0xFFF3, 0xFFF4, 0xFFF5, 0xFFF6, 0xFFF7, 0xFFF8] {
             let s = String(Unicode.Scalar(scalar)!)
             XCTAssertNil(
                 EmailSyntaxValidator.mailbox(from: "user\(s)@site.com", compatibility: .unicode, domainValidator: comOnlyDomainValidator),
@@ -446,6 +461,39 @@ final class EmailSyntaxValidatorTests: XCTestCase {
             XCTAssertNil(
                 EmailSyntaxValidator.mailbox(from: "\"a\(s)b\"@site.com", compatibility: .unicode, domainValidator: comOnlyDomainValidator),
                 "Quoted local part must reject U+\(String(scalar, radix: 16, uppercase: true)) (Default_Ignorable, RFC 5892 §2.6)"
+            )
+        }
+    }
+
+    func testLocalPartRejectsSupplementaryDefaultIgnorables() {
+        // SMP-resident Cf/Default_Ignorable scalars that bypass the local-part path because
+        // the supplementaryPlanes block is unconditionally union'd into the atext/qtext sets
+        // (Foundation .subtracting() corrupts supplementary-plane bitmaps). The domain path
+        // already rejects these via CharacterSet.letters not containing Cf; mirror that on
+        // the local-part path via the isRejectedSupplementaryScalar helper.
+        let scalars: [(UInt32, String)] = [
+            (0x1BCA0, "SHORTHAND FORMAT LETTER OVERLAP (Cf)"),
+            (0x1BCA1, "SHORTHAND FORMAT CONTINUING OVERLAP (Cf)"),
+            (0x1BCA2, "SHORTHAND FORMAT DOWN STEP (Cf)"),
+            (0x1BCA3, "SHORTHAND FORMAT UP STEP (Cf)"),
+            (0x1D173, "MUSICAL SYMBOL BEGIN BEAM (Cf)"),
+            (0x1D174, "MUSICAL SYMBOL END BEAM (Cf)"),
+            (0x1D175, "MUSICAL SYMBOL BEGIN TIE (Cf)"),
+            (0x1D176, "MUSICAL SYMBOL END TIE (Cf)"),
+            (0x1D177, "MUSICAL SYMBOL BEGIN SLUR (Cf)"),
+            (0x1D178, "MUSICAL SYMBOL END SLUR (Cf)"),
+            (0x1D179, "MUSICAL SYMBOL BEGIN PHRASE (Cf)"),
+            (0x1D17A, "MUSICAL SYMBOL END PHRASE (Cf)"),
+        ]
+        for (scalar, label) in scalars {
+            let s = String(Unicode.Scalar(scalar)!)
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "user\(s)@site.com", compatibility: .unicode, domainValidator: comOnlyDomainValidator),
+                "Local part must reject U+\(String(scalar, radix: 16, uppercase: true)) — \(label)"
+            )
+            XCTAssertNil(
+                EmailSyntaxValidator.mailbox(from: "\"a\(s)b\"@site.com", compatibility: .unicode, domainValidator: comOnlyDomainValidator),
+                "Quoted local part must reject U+\(String(scalar, radix: 16, uppercase: true)) — \(label)"
             )
         }
     }

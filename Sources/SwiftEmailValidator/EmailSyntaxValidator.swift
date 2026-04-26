@@ -407,9 +407,9 @@ public final class EmailSyntaxValidator {
     // visible glyph and enable the same spoofing class as zero-width / variation-selector chars.
     // The local-part path already gates most of these via `CharacterSet.letters` exclusions, but
     // category-Lo fillers (U+3164, U+115F-U+1160, U+FFA0), category-Mn variation-class scalars
-    // (U+17B4-U+17B5, U+180B-U+180D), and U+034F COMBINING GRAPHEME JOINER (Mn, attaches to a
-    // base scalar invisibly) flow through CharacterSet.letters on the *domain* path. U+034F also
-    // bypasses the local-part filters because it lives in nonAsciiBmpLow and is not category Lo/Mc.
+    // (U+17B4-U+17B5, U+180B-U+180D, U+180F), and U+034F COMBINING GRAPHEME JOINER (Mn, attaches
+    // to a base scalar invisibly) flow through CharacterSet.letters on the *domain* path. U+034F
+    // also bypasses the local-part filters because it lives in nonAsciiBmpLow and is not Lo/Mc.
     // U+05B0 HEBREW POINT SHEVA is intentionally NOT here: it is PVALID under IDNA2008 and a
     // legitimate Hebrew vowel point, even though it shares General_Category=Mn with the
     // variation selectors.
@@ -418,9 +418,10 @@ public final class EmailSyntaxValidator {
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x061C)!...Unicode.Scalar(0x061C)!)) // U+061C ARABIC LETTER MARK
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x115F)!...Unicode.Scalar(0x1160)!)) // U+115F/U+1160 HANGUL CHOSEONG/JUNGSEONG FILLER
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x17B4)!...Unicode.Scalar(0x17B5)!)) // U+17B4/U+17B5 KHMER VOWEL INHERENT AQ/AA
-        .union(CharacterSet(charactersIn: Unicode.Scalar(0x180B)!...Unicode.Scalar(0x180E)!)) // U+180B-U+180D MONGOLIAN FVS-1/2/3, U+180E MONGOLIAN VOWEL SEPARATOR
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0x180B)!...Unicode.Scalar(0x180F)!)) // U+180B-U+180D MONGOLIAN FVS-1/2/3, U+180E MONGOLIAN VOWEL SEPARATOR, U+180F MONGOLIAN FVS-4 (Unicode 14.0)
         .union(CharacterSet(charactersIn: Unicode.Scalar(0x3164)!...Unicode.Scalar(0x3164)!)) // U+3164 HANGUL FILLER
         .union(CharacterSet(charactersIn: Unicode.Scalar(0xFFA0)!...Unicode.Scalar(0xFFA0)!)) // U+FFA0 HALFWIDTH HANGUL FILLER
+        .union(CharacterSet(charactersIn: Unicode.Scalar(0xFFF0)!...Unicode.Scalar(0xFFF8)!)) // U+FFF0-U+FFF8 reserved (Cn, Default_Ignorable; UCD DerivedCoreProperties)
 
     // Note: CharacterSet.inverted doesn't properly include supplementary planes (U+10000+).
     // Using .inverted on an ASCII-range set also leaks supplementary scalars into the result on
@@ -528,6 +529,8 @@ public final class EmailSyntaxValidator {
     /// supplementary-plane scalars even if one path's CharacterSet logic regresses.
     ///
     /// Coverage:
+    /// - U+1BCA0–U+1BCA3 — SHORTHAND FORMAT controls (Cf, SMP, Default_Ignorable; RFC 5892 §2.6 DISALLOWED)
+    /// - U+1D173–U+1D17A — MUSICAL SYMBOL formatting controls (Cf, SMP, Default_Ignorable; RFC 5892 §2.6 DISALLOWED)
     /// - U+1FFFE / U+1FFFF — Plane 1 (SMP) noncharacters (Unicode §23.7 permanently reserved)
     /// - U+2FFFE / U+2FFFF — Plane 2 (SIP) noncharacters (Unicode §23.7 permanently reserved)
     /// - U+3FFFE / U+3FFFF — Plane 3 (TIP) noncharacters (Unicode §23.7 permanently reserved)
@@ -535,7 +538,9 @@ public final class EmailSyntaxValidator {
     /// - U+E0000–U+10FFFF — entire SSP (Tags, VS Supplement, unassigned gaps) + PUA-A/B
     private static func isRejectedSupplementaryScalar(_ scalar: Unicode.Scalar) -> Bool {
         let value = scalar.value
-        return (value == 0x1FFFE || value == 0x1FFFF)
+        return (value >= 0x1BCA0 && value <= 0x1BCA3)
+            || (value >= 0x1D173 && value <= 0x1D17A)
+            || (value == 0x1FFFE || value == 0x1FFFF)
             || (value == 0x2FFFE || value == 0x2FFFF)
             || (value == 0x3FFFE || value == 0x3FFFF)
             || (value >= 0x40000 && value <= 0xDFFFF)
