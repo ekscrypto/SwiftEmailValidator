@@ -81,10 +81,10 @@ SwiftEmailValidator is an RFC-compliant email syntax validator supporting intern
 **SwiftEmailValidatorIDNA** (`Sources/SwiftEmailValidatorIDNA/`)
 - Opt-in companion library layering UTS #46 IDNA Compatibility Processing on the host portion of the address
 - Import separately (`import SwiftEmailValidatorIDNA`) to avoid bundling ~385 KB of mapping data into callers that don't need it
-- Provides `IDNA.Options` (transitional vs nontransitional, CheckHyphens, UseSTD3ASCIIRules), plus `IDNA.toAscii(_:)` / `IDNA.toUnicode(_:)` for direct use
+- Provides `IDNA.Options` (transitional, CheckHyphens, UseSTD3ASCIIRules, VerifyDnsLength, CheckBidi, CheckJoiners, CheckContextO), plus `IDNA.toAscii(_:)` / `IDNA.toUnicode(_:)` for direct use
 - Exposes `IDNA.domainValidator(_:base:)` factory and convenience overloads `EmailSyntaxValidator.correctlyFormatted(_:idna:)` / `mailbox(from:idna:)`
-- Implements §4 steps 1-5 (Map / NFC / Break / Validate / ToASCII) with a self-contained RFC 3492 Punycode codec; deliberately omits Bidi (RFC 5893) and CONTEXTJ — see header comment in `IDNA.swift`
-- Mapping table generated from `IdnaMappingTable.txt` via `Sources/SwiftEmailValidatorIDNA/Tools/generate.py`; regenerate only on UCD version upgrades
+- Implements §4 steps 1-5 (Map / NFC / Break / Validate / ToASCII) with a self-contained RFC 3492 Punycode codec, full RFC 5893 Bidi (V6) and RFC 5892 §A.1/§A.2 CONTEXTJ (V7); RFC 5892 §A.3-§A.9 CONTEXTO is layered on top of UTS #46 as a security extension (default on, opt-out via `checkContextO: false`)
+- Mapping / Bidi_Class / Joining_Type / Virama / Script tables generated from UCD via `Sources/SwiftEmailValidatorIDNA/Tools/generate.py`; regenerate only on UCD version upgrades
 
 ### Validation Flow
 
@@ -113,11 +113,12 @@ SwiftEmailValidator is an RFC-compliant email syntax validator supporting intern
 - RFC 3172: Management Guidelines & Operational Requirements for `.arpa` (infrastructure-only; rejected by `TLDDomainValidator`)
 - RFC 5321: Simple Mail Transfer Protocol (SMTP)
 - RFC 5322: Internet Message Format
-- RFC 5891 / 5892: IDNA2008 protocol + character properties (referenced; PVALID enforcement deferred to `domainValidator` closure)
+- RFC 5891 / 5892: IDNA2008 protocol + character properties (PVALID enforcement deferred to `domainValidator` closure; CONTEXTJ §A.1/§A.2 enforced as UTS #46 V7; CONTEXTO §A.3-§A.9 enforced as a security extension on top of UTS #46 in `SwiftEmailValidatorIDNA`)
+- RFC 5893: Bidi rule for IDNA labels (enforced as UTS #46 V6 in `SwiftEmailValidatorIDNA`)
 - RFC 6531: SMTP Extension for Internationalized Email
 - RFC 6532: Internationalized Email Headers (`EmailNormalizer.nfc(_:)` is §3.1 compliant)
 - RFC 6761 / 6762 / 7686 / 8375 / 9476: IETF Special-Use Domain Names (rejected by `TLDDomainValidator`)
 - UTS #39: Unicode Security Mechanisms (via opt-in `SwiftEmailValidatorUTS39` target)
 - UTS #46 §4 dot-mapping: `TLDDomainValidator.isPubliclyDeliverable(_:)` folds U+3002 / U+FF0E / U+FF61 to ASCII '.' in the core
-- UTS #46 §4 full pipeline: Map / NFC / Break / Validate / ToASCII via opt-in `SwiftEmailValidatorIDNA` target (Bidi + CONTEXTJ deferred)
+- UTS #46 §4 full pipeline: Map / NFC / Break / Validate / ToASCII (with CheckBidi V6 + CheckJoiners V7) via opt-in `SwiftEmailValidatorIDNA` target
 - RFC 3492: Punycode encoding (used by `SwiftEmailValidatorIDNA` for ToASCII / ToUnicode)

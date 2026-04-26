@@ -15,6 +15,7 @@ URLS=(
     "https://www.unicode.org/Public/UCD/latest/ucd/extracted/DerivedBidiClass.txt"
     "https://www.unicode.org/Public/UCD/latest/ucd/extracted/DerivedJoiningType.txt"
     "https://www.unicode.org/Public/UCD/latest/ucd/UnicodeData.txt"
+    "https://www.unicode.org/Public/UCD/latest/ucd/Scripts.txt"
 )
 
 for url in "${URLS[@]}"; do

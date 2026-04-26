@@ -40,10 +40,12 @@ import SwiftEmailValidator
 ///  * `Transitional_Processing` toggle (default off — matches modern
 ///    browsers and the post-2016 spec recommendation).
 ///
-/// CONTEXTO (RFC 5892 §A.3-§A.7) is **not** implemented; UTS #46 does not
-/// require it. Callers that need CONTEXTO (e.g. Greek-keraia, Katakana-
-/// middle-dot, Arabic-Indic digit-mixing rules) must layer their own
-/// validation on top of ``IDNA/toAscii(_:options:)``.
+/// In addition, this implementation layers RFC 5892 §A.3-§A.9 CONTEXTO
+/// rules on top of UTS #46 as a security-grade extension. CONTEXTO is
+/// not part of UTS #46 §4 — it is enabled by default to catch homograph
+/// attacks (Greek keraia, Hebrew geresh/gershayim, Catalan middle dot,
+/// Katakana middle dot, mixed Arabic-Indic / Extended Arabic-Indic
+/// digits) but can be disabled with ``Options/checkContextO``.
 public enum IDNA {
 
     /// Configuration for UTS #46 processing.
@@ -110,13 +112,37 @@ public enum IDNA {
         /// Default `true`.
         public var checkJoiners: Bool
 
+        /// Enforce the RFC 5892 §A.3-§A.9 CONTEXTO rules on every label.
+        /// Specifically:
+        ///
+        ///  * §A.3 — `U+00B7` (MIDDLE DOT) only between two `'l'` (Catalan
+        ///    ela geminada).
+        ///  * §A.4 — `U+0375` (GREEK KERAIA) only when followed by a Greek
+        ///    scalar.
+        ///  * §A.5 / §A.6 — `U+05F3` / `U+05F4` (HEBREW GERESH /
+        ///    GERSHAYIM) only when preceded by a Hebrew scalar.
+        ///  * §A.7 — `U+30FB` (KATAKANA MIDDLE DOT) only in labels that
+        ///    also contain Hiragana, Katakana, or Han.
+        ///  * §A.8 / §A.9 — `U+0660..U+0669` (Arabic-Indic Digits) and
+        ///    `U+06F0..U+06F9` (Extended Arabic-Indic Digits) must not be
+        ///    mixed in the same label.
+        ///
+        /// CONTEXTO is **not** required by UTS #46 §4 — this is a
+        /// security-grade extension layered on top of UTS #46 to catch
+        /// homograph attacks across these specific scalar families.
+        /// Disable for strict UTS #46 conformance only.
+        ///
+        /// Default `true`.
+        public var checkContextO: Bool
+
         public init(
             transitional: Bool = false,
             checkHyphens: Bool = true,
             useSTD3ASCIIRules: Bool = true,
             verifyDnsLength: Bool = true,
             checkBidi: Bool = true,
-            checkJoiners: Bool = true
+            checkJoiners: Bool = true,
+            checkContextO: Bool = true
         ) {
             self.transitional = transitional
             self.checkHyphens = checkHyphens
@@ -124,6 +150,7 @@ public enum IDNA {
             self.verifyDnsLength = verifyDnsLength
             self.checkBidi = checkBidi
             self.checkJoiners = checkJoiners
+            self.checkContextO = checkContextO
         }
     }
 
@@ -145,7 +172,8 @@ public enum IDNA {
             transitional: options.transitional,
             verifyDnsLength: options.verifyDnsLength,
             checkBidi: options.checkBidi,
-            checkJoiners: options.checkJoiners)
+            checkJoiners: options.checkJoiners,
+            checkContextO: options.checkContextO)
     }
 
     /// Apply UTS #46 §4 Processing without forcing ToASCII (UTS #46 ToUnicode).
@@ -221,6 +249,7 @@ public enum IDNA {
                 transitional: stage.wasDecoded ? false : options.transitional,
                 checkBidi: options.checkBidi,
                 checkJoiners: options.checkJoiners,
+                checkContextO: options.checkContextO,
                 domainIsBidi: domainIsBidi
             ) else { return nil }
             out.append(stage.u)

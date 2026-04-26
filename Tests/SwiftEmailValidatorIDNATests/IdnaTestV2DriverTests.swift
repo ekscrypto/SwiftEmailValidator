@@ -52,23 +52,29 @@ final class IdnaTestV2DriverTests: XCTestCase {
 
             rowCount += 1
 
+            // CONTEXTO (RFC 5892 §A.3-§A.9) is a non-UTS-#46 extension —
+            // UTS #46 vectors are agnostic to it, so disable here to keep
+            // the conformance suite measuring strict UTS #46 only. The
+            // CONTEXTO rules are exercised independently by ContextOTests.
+            let optsN = IDNA.Options(transitional: false, checkContextO: false)
+            let optsT = IDNA.Options(transitional: true,  checkContextO: false)
             checkCount += Self.assertOperation(
                 op: .toUnicode,
                 row: row,
                 lineNo: lineNo + 1,
-                actual: IDNA.toUnicode(row.source),
+                actual: IDNA.toUnicode(row.source, options: optsN),
                 failures: &failures)
             checkCount += Self.assertOperation(
                 op: .toAsciiN,
                 row: row,
                 lineNo: lineNo + 1,
-                actual: IDNA.toAscii(row.source, options: IDNA.Options(transitional: false)),
+                actual: IDNA.toAscii(row.source, options: optsN),
                 failures: &failures)
             checkCount += Self.assertOperation(
                 op: .toAsciiT,
                 row: row,
                 lineNo: lineNo + 1,
-                actual: IDNA.toAscii(row.source, options: IDNA.Options(transitional: true)),
+                actual: IDNA.toAscii(row.source, options: optsT),
                 failures: &failures)
         }
 

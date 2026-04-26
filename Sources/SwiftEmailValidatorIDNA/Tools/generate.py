@@ -546,6 +546,125 @@ def emit_virama(scalars: List[int], version: str) -> str:
     return "".join(body)
 
 
+# ---------------------------------------------------------------------------
+# Script — RFC 5892 §A.4-§A.7 input
+# ---------------------------------------------------------------------------
+#
+# RFC 5892 CONTEXTO rules reference Script(cp) for five specific values:
+#   §A.4 GREEK KERAIA       → after must be Greek
+#   §A.5/A.6 HEBREW GERESH/ → before must be Hebrew
+#         GERSHAYIM
+#   §A.7 KATAKANA MIDDLE    → label must contain Hiragana, Katakana, or Han
+#         DOT
+#
+# We only need to distinguish those five scripts from "everything else", so
+# the table emits 6 categories and merges all other Script_Property values
+# (Common, Inherited, Latin, Cyrillic, …) into `.other`. Codepoints not in
+# Scripts.txt at all default to `.other` (Unknown).
+
+SCRIPT_BY_NAME = {
+    "Greek":    1,
+    "Hebrew":   2,
+    "Hiragana": 3,
+    "Katakana": 4,
+    "Han":      5,
+}
+SCRIPT_OTHER = 0
+
+
+def read_script() -> Tuple[str, List[Tuple[int, int, int]]]:
+    path = UCD / "Scripts.txt"
+    version = "unknown"
+    cp_class = [SCRIPT_OTHER] * 0x110000
+
+    with path.open(encoding="utf-8") as f:
+        for raw in f:
+            if version == "unknown":
+                m = re.search(r"-([\d.]+)\.txt", raw)
+                if m:
+                    version = m.group(1)
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            parts = [p.strip() for p in line.split(";")]
+            if len(parts) < 2:
+                continue
+            lo, hi = parse_range(parts[0])
+            code = SCRIPT_BY_NAME.get(parts[1], SCRIPT_OTHER)
+            if code == SCRIPT_OTHER:
+                continue  # leave defaults
+            for cp in range(lo, hi + 1):
+                cp_class[cp] = code
+
+    merged: List[Tuple[int, int, int]] = []
+    start = 0
+    cur = cp_class[0]
+    for cp in range(1, 0x110000):
+        if cp_class[cp] != cur:
+            merged.append((start, cp - 1, cur))
+            start = cp
+            cur = cp_class[cp]
+    merged.append((start, 0x10FFFF, cur))
+
+    # Drop trailing/leading runs of `.other` to keep the table compact —
+    # the lookup falls back to `.other` for any scalar outside the table.
+    merged = [r for r in merged if r[2] != SCRIPT_OTHER]
+    return version, merged
+
+
+def emit_script(ranges: List[Tuple[int, int, int]], version: str) -> str:
+    body = []
+    body.append("//\n")
+    body.append("//  Script.swift\n")
+    body.append("//  SwiftEmailValidatorIDNA\n")
+    body.append("//\n")
+    body.append("//  GENERATED FILE — DO NOT EDIT BY HAND.\n")
+    body.append("//  Regenerate via Sources/SwiftEmailValidatorIDNA/Tools/generate.py\n")
+    body.append("//\n")
+    body.append("//  Data source: Unicode Character Database — Scripts.txt\n")
+    body.append(f"//  Unicode version: {version}\n")
+    body.append("//\n")
+    body.append("//  Copyrights (C) 2026, Dave Poirier.  Distributed under MIT license\n")
+    body.append("//\n\n")
+    body.append("import Foundation\n\n")
+    body.append("/// Subset of Script_Property values needed for RFC 5892 §A.4-§A.7\n")
+    body.append("/// CONTEXTO enforcement. Codes outside this enum collapse to `.other`,\n")
+    body.append("/// which represents \"any script other than the five tracked here\".\n")
+    body.append("enum ScriptCategory: UInt8 {\n")
+    body.append("    case other    = 0\n")
+    body.append("    case greek    = 1\n")
+    body.append("    case hebrew   = 2\n")
+    body.append("    case hiragana = 3\n")
+    body.append("    case katakana = 4\n")
+    body.append("    case han      = 5\n")
+    body.append("}\n\n")
+    body.append("enum ScriptData {\n")
+    body.append(f"    static let unicodeVersion: String = \"{version}\"\n\n")
+    body.append(f"    static let rangeCount: Int = {len(ranges)}\n\n")
+
+    starts = [r[0] for r in ranges]
+    ends   = [r[1] for r in ranges]
+    cats   = [r[2] for r in ranges]
+
+    def emit_chunked(name: str, kind: str, vals, hex_pad: int = 0) -> None:
+        body.append(f"    static let {name}: [{kind}] = [\n")
+        chunk = 16
+        for i in range(0, len(vals), chunk):
+            slice_ = vals[i : i + chunk]
+            if hex_pad:
+                rendered = ", ".join(f"0x{v:0{hex_pad}X}" for v in slice_)
+            else:
+                rendered = ", ".join(str(v) for v in slice_)
+            body.append(f"        {rendered},\n")
+        body.append("    ]\n\n")
+
+    emit_chunked("rangeStart",    "UInt32", starts, hex_pad=6)
+    emit_chunked("rangeEnd",      "UInt32", ends,   hex_pad=6)
+    emit_chunked("rangeCategory", "UInt8",  cats)
+    body.append("}\n")
+    return "".join(body)
+
+
 def main() -> int:
     if not UCD.exists():
         print(f"error: UCD directory {UCD} not found", file=sys.stderr)
@@ -591,6 +710,16 @@ def main() -> int:
         f"wrote {virama_out.relative_to(REPO)} "
         f"({len(virama_content.encode('utf-8')) / 1024:.1f} KB, "
         f"{len(virama_scalars)} scalars, version {version})"
+    )
+
+    script_version, script_ranges = read_script()
+    script_content = emit_script(script_ranges, script_version)
+    script_out = DATA_DIR / "Script.swift"
+    script_out.write_text(script_content, encoding="utf-8")
+    print(
+        f"wrote {script_out.relative_to(REPO)} "
+        f"({len(script_content.encode('utf-8')) / 1024:.1f} KB, "
+        f"{len(script_ranges)} ranges, version {script_version})"
     )
     return 0
 

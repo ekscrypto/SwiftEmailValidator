@@ -11,9 +11,9 @@
 //    Step 4: Validate each label (and Punycode-decode A-labels first).
 //    Step 5: ToASCII — Punycode-encode any non-ASCII U-label.
 //
-//  Bidi (RFC 5893) and CONTEXTJ (RFC 5892 §A.1/A.2) checks are out of
-//  scope for this initial implementation; see `IDNA.swift` for the
-//  documented gaps.
+//  RFC 5893 Bidi and RFC 5892 §A.1/§A.2 CONTEXTJ run as UTS #46 V6/V7;
+//  RFC 5892 §A.3-§A.9 CONTEXTO runs as a non-UTS-#46 security extension
+//  layered on top of validateLabel — see IDNA.swift for the policy.
 //
 
 import Foundation
@@ -94,6 +94,8 @@ enum IdnaProcessing {
     ///    enforced separately here)
     ///  - if `checkBidi`: RFC 5893 §2 Bidi rule on Bidi domain name labels (V6)
     ///  - if `checkJoiners`: RFC 5892 §A.1 (ZWNJ) and §A.2 (ZWJ) CONTEXTJ (V7)
+    ///  - if `checkContextO`: RFC 5892 §A.3-§A.9 CONTEXTO (non-UTS-#46
+    ///    security extension; see `IDNA.Options.checkContextO` for details)
     static func validateLabel(
         _ label: String,
         checkHyphens: Bool,
@@ -101,6 +103,7 @@ enum IdnaProcessing {
         transitional: Bool,
         checkBidi: Bool,
         checkJoiners: Bool,
+        checkContextO: Bool,
         domainIsBidi: Bool
     ) -> Bool {
         if label.isEmpty { return false }
@@ -168,6 +171,15 @@ enum IdnaProcessing {
             return false
         }
 
+        // CONTEXTO (RFC 5892 §A.3-§A.9). Layered on top of UTS #46 §4 —
+        // not part of the V1-V7 validity criteria. Run last so the more
+        // structural checks (NFC, hyphens, leading combining mark, V4/V5,
+        // CONTEXTJ, Bidi) fire first; ordering does not affect correctness
+        // since every check must pass.
+        if checkContextO && !ContextO.validate(label) {
+            return false
+        }
+
         return true
     }
 
@@ -212,7 +224,8 @@ enum IdnaProcessing {
         transitional: Bool,
         verifyDnsLength: Bool,
         checkBidi: Bool,
-        checkJoiners: Bool
+        checkJoiners: Bool,
+        checkContextO: Bool
     ) -> String? {
         guard let mapped = applyMapping(
             input,
@@ -296,6 +309,7 @@ enum IdnaProcessing {
                 transitional: stage.wasDecoded ? false : transitional,
                 checkBidi: checkBidi,
                 checkJoiners: checkJoiners,
+                checkContextO: checkContextO,
                 domainIsBidi: domainIsBidi
             ) else { return nil }
 
