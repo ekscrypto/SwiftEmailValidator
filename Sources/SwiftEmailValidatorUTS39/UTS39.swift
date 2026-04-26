@@ -17,6 +17,38 @@ import Foundation
 /// closures that can be passed to `EmailSyntaxValidator.correctlyFormatted` /
 /// `mailbox(from:)`. Use the convenience overloads on `EmailSyntaxValidator`
 /// (see `UTS39+Convenience.swift`) for the common case.
+///
+/// ## Scope and intentional gaps
+///
+/// This implementation covers the subset of UTS #39 that maps cleanly onto
+/// per-identifier email-component validation: §3 Identifier_Status, §4
+/// confusable skeletons, and §5.2 Restriction Levels (Single Script /
+/// Highly Restrictive / Moderately Restrictive). The following UTS #39
+/// sections are deliberately **not** implemented; callers needing them must
+/// layer their own checks over the `localPartValidator` / `domainValidator`
+/// hooks:
+///
+/// - **§5.6.1 Whole-Script Confusables** — character-level skeleton
+///   confusion is implemented (see `Policy.rejectConfusables`); the broader
+///   whole-script-confusable analysis (e.g. all-Cyrillic strings whose
+///   characters individually look like Latin) is out of scope. The Highly
+///   Restrictive default already prevents the most common attack — mixing
+///   Cyrillic with Latin — by rejecting that combination outright.
+/// - **§5.7.1 Mixed-Numbers** — strings combining decimal digits from
+///   different numeric systems (e.g. ASCII `4` + Arabic-Indic `٤`) are not
+///   detected. The mixed-script check catches this when the digits live in
+///   distinct scripts but does not catch Common-script-digit mixing.
+/// - **Identifier_Type = Not_NFKC** — inputs are not NFKC-normalized prior
+///   to script/identifier checks. The main library deliberately preserves
+///   the user-supplied form (RFC 6532 §3.1 says receivers SHOULD NOT apply
+///   NFKC); see `EmailNormalizer.nfkc(_:)` if a caller wants opt-in
+///   compatibility folding. Any UTS #39 check on the post-NFKC form must be
+///   driven explicitly: `UTS39.localPartValidator(...)({ EmailNormalizer.nfkc($0) })`.
+///
+/// These gaps are documented rather than fixed because each one materially
+/// changes user-visible behavior (rejecting historically-accepted inputs);
+/// adding them silently inside an addon labeled "UTS #39" would surprise
+/// callers who already populated the policy struct.
 public enum UTS39 {
 
     /// UTS #39 §5 Restriction Level ladder.

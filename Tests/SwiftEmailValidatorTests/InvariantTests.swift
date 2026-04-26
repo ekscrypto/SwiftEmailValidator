@@ -91,6 +91,18 @@ final class InvariantTests: XCTestCase {
         }
     }
 
+    /// `IANATLDs.all` is queried via `s.lowercased()` lookups. The generator
+    /// (`Tools/generate_tlds.py`) lowercases every entry — both ACE labels via
+    /// `.lower()` and U-labels via `idna.decode(label).lower()`. Lock that
+    /// invariant in the type system: if a regenerator ever shipped a mixed-case
+    /// entry, every email validation call routed through that TLD would silently
+    /// fail despite the TLD being registered.
+    func testGeneratedTLDsAreAllLowercase() {
+        XCTAssertTrue(
+            IANATLDs.all.allSatisfy { $0 == $0.lowercased() },
+            "Every entry in IANATLDs.all must be lowercase — _isPubliclyDeliverable lowercases input before lookup, so a mixed-case generated entry would be unreachable")
+    }
+
     /// Validator must never crash or hang on arbitrary byte-sized inputs.
     /// Deterministic enumeration of short ASCII byte strings drawn from the
     /// printable + selected control range.

@@ -307,6 +307,123 @@ final class RFC2047CoderTests: XCTestCase {
                        "Clean base64 encoded word should decode correctly")
     }
 
+    // MARK: - Encoder output structure
+    //
+    // Round-trip tests above only assert encode-then-decode equality, which
+    // would also pass if `encode` produced any reversible blob. These tests
+    // pin the *structural* shape of the output (`=?utf-8?b?…?=`) so a future
+    // change that, say, switched to a different charset/encoding triplet or
+    // emitted padding `=` would break loudly here, not silently downstream
+    // (e.g. interop with strict RFC 2047 parsers in third-party MTAs).
+
+    func testEncodeOutputAlwaysUsesUtf8BasePrefix() {
+        let inputs = [
+            "user@domain.com",       // pure ASCII
+            "用户@example.com",       // CJK
+            "café@bistro.fr",        // Latin-1 supplement
+            "한@x.한국",               // Hangul + IDN
+            ""                       // empty
+        ]
+        for input in inputs {
+            guard let encoded = RFC2047Coder.encode(input) else {
+                XCTFail("Encoder must not return nil for valid UTF-8 input: '\(input)'")
+                continue
+            }
+            XCTAssertTrue(encoded.hasPrefix("=?utf-8?b?"),
+                          "Encoded form must start with `=?utf-8?b?` (got: '\(encoded)')")
+            XCTAssertTrue(encoded.hasSuffix("?="),
+                          "Encoded form must end with `?=` (got: '\(encoded)')")
+            XCTAssertFalse(encoded.dropFirst("=?utf-8?b?".count).dropLast(2).contains("="),
+                           "Encoded base64 payload must not contain `=` padding — encoder strips it (got: '\(encoded)')")
+        }
+    }
+
+    func testEncodedPayloadIsValidBase64Alphabet() {
+        guard let encoded = RFC2047Coder.encode("用户@example.com") else {
+            XCTFail("Encoder failed for CJK input")
+            return
+        }
+        let prefix = "=?utf-8?b?"
+        let suffix = "?="
+        XCTAssertTrue(encoded.hasPrefix(prefix) && encoded.hasSuffix(suffix))
+        let payload = encoded.dropFirst(prefix.count).dropLast(suffix.count)
+        // RFC 4648 §4 base64 alphabet: A-Z a-z 0-9 + /. The encoder strips '='.
+        let allowed: Set<Character> = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+        XCTAssertTrue(payload.allSatisfy { allowed.contains($0) },
+                      "Encoded payload must contain only base64 alphabet characters (got: '\(payload)')")
+    }
+
+    // MARK: - ISO-8859-2 multi-character Q-decode round-trip
+    //
+    // The Latin-2-specific decode tests above each cover a single hex byte.
+    // This test exercises a longer Q-encoded string carrying multiple
+    // ISO-8859-2-specific scalars (Polish, Czech, Hungarian, Romanian) to
+    // catch any byte-walking or per-character-state regressions in the
+    // decoder loop. (`encode()` only emits UTF-8 base64, so there is no true
+    // encode-then-decode round-trip path for ISO-8859-2 — this test is the
+    // closest analog.)
+    func testDecodingLatin2QMultiCharRoundTrip() {
+        // Polish ą (0xB1), ć (0xE6), ę (0xEA), ł (0xB3), ń (0xF1), ó (0xF3),
+        // ś (0xB6), ź (0xBC), ż (0xBF) + Czech ě (0xEC), ř (0xF8), č (0xE8),
+        // š (0xB9), ž (0xBE) + Hungarian ő (0xF5), ű (0xFB).
+        let encoded = "=?iso-8859-2?q?=B1=E6=EA=B3=F1=F3=B6=BC=BF=EC=F8=E8=B9=BE=F5=FB?="
+        XCTAssertEqual(RFC2047Coder.decode(encoded), "ąćęłńóśźżěřčšžőű",
+                       "Multi-character ISO-8859-2 Q-encoded string must decode to expected Unicode")
+    }
+
+    // MARK: - UTF-16 / UTF-32 BOM-less payload behavior
+    //
+    // The encoder always emits UTF-8, so BOM handling is a decoder-side concern
+    // for inbound payloads from other encoders. Foundation's
+    // `String(data:encoding:.utf16/.utf32)` falls back to platform-endian
+    // when no BOM is present. These tests document *that* behavior — if it
+    // ever changes (e.g. a future Swift release rejects BOM-less UTF-16/-32
+    // outright), this test surfaces the breaking change.
+    //
+    // We use big-endian byte sequences and accept either a successful decode
+    // (platform happens to be BE) OR nil/replacement-char output (platform is
+    // LE and reads the bytes as garbled scalars). The point is the decoder
+    // doesn't crash and behavior is consistent with Foundation's contract.
+
+    func testDecodingUTF16BomlessBehaviorDocumented() {
+        // "test" as UTF-16 big-endian without BOM: 00 74 00 65 00 73 00 74
+        let bomlessUtf16BE = Data([0x00, 0x74, 0x00, 0x65, 0x00, 0x73, 0x00, 0x74])
+        let base64 = bomlessUtf16BE.base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let encoded = "=?utf-16?b?\(base64)?="
+        let result = RFC2047Coder.decode(encoded)
+        // Platform-endian dependent: on BE platforms (rare today) decodes to "test";
+        // on LE platforms (typical) Foundation reads as bytes 7400 → U+7400 (CJK), etc.
+        // Either way, decoding must not crash, and a successful decode must yield
+        // a non-empty, valid String. We do not pin the value.
+        if let result = result {
+            XCTAssertFalse(result.isEmpty,
+                           "BOM-less UTF-16 must not decode to empty when Foundation accepts it")
+        }
+        // Sanity: same payload with BOM prepended decodes deterministically.
+        let withBom = Data([0xFE, 0xFF]) + bomlessUtf16BE
+        let base64WithBom = withBom.base64EncodedString().replacingOccurrences(of: "=", with: "")
+        XCTAssertEqual(RFC2047Coder.decode("=?utf-16?b?\(base64WithBom)?="), "test",
+                       "UTF-16BE with BOM must decode deterministically to 'test'")
+    }
+
+    func testDecodingUTF32BomlessBehaviorDocumented() {
+        // "hi" as UTF-32 big-endian without BOM: 00 00 00 68 00 00 00 69
+        let bomlessUtf32BE = Data([0x00, 0x00, 0x00, 0x68, 0x00, 0x00, 0x00, 0x69])
+        let base64 = bomlessUtf32BE.base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let encoded = "=?utf-32?b?\(base64)?="
+        let result = RFC2047Coder.decode(encoded)
+        // Platform-endian dependent — see UTF-16 test above for rationale.
+        if let result = result {
+            XCTAssertFalse(result.isEmpty,
+                           "BOM-less UTF-32 must not decode to empty when Foundation accepts it")
+        }
+        // Sanity: same payload with BOM prepended decodes deterministically.
+        let withBom = Data([0x00, 0x00, 0xFE, 0xFF]) + bomlessUtf32BE
+        let base64WithBom = withBom.base64EncodedString().replacingOccurrences(of: "=", with: "")
+        XCTAssertEqual(RFC2047Coder.decode("=?utf-32?b?\(base64WithBom)?="), "hi",
+                       "UTF-32BE with BOM must decode deterministically to 'hi'")
+    }
+
     // MARK: - C1 control byte rejection in Q-encoded ISO-8859-1/2
 
     func testDecodingLatin1QC1ControlBytesRejected() {

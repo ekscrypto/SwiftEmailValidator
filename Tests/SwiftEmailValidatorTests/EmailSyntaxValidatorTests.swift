@@ -1232,6 +1232,71 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         )
     }
 
+    // MARK: - Address literal: General-address-literal not supported
+    //
+    // RFC 5321 §4.1.3 defines `address-literal = "[" ( IPv4-address-literal /
+    // IPv6-address-literal / General-address-literal ) "]"`, where
+    // `General-address-literal = Standardized-tag ":" 1*dcontent` carries
+    // future tag types via the IANA Address Literal Tags registry. This
+    // implementation deliberately supports only `IPv4-address-literal` and
+    // `IPv6:` literals — any other Standardized-tag form must be rejected.
+    // These tests pin that scope so a future tag (e.g. one from the IANA
+    // registry beyond IPv6) can't be silently accepted by accident.
+    func testGeneralAddressLiteralWithUnknownTagRejected() {
+        let permissive: (String) -> Bool = { _ in true }
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@[FOOTAG:bar]", allowAddressLiteral: true,
+                                         domainValidator: permissive),
+            "Unknown Standardized-tag form must be rejected (RFC 5321 §4.1.3 General-address-literal not supported)")
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@[X:1.2.3.4]", allowAddressLiteral: true,
+                                         domainValidator: permissive),
+            "Single-letter Standardized-tag form must be rejected — only IPv4 and IPv6: tags are accepted")
+        XCTAssertNil(
+            EmailSyntaxValidator.mailbox(from: "user@[ipv6:::1]", allowAddressLiteral: true,
+                                         domainValidator: permissive),
+            "IPv6 tag is case-sensitive per IANA registry — lowercase `ipv6:` must be rejected")
+    }
+
+    // MARK: - Single-label host rejection via main validator
+    //
+    // The default `domainValidator` is `TLDDomainValidator._isPubliclyDeliverable`,
+    // which requires ≥2 labels (RFC 5321 FQDN). TLDDomainValidatorTests covers the
+    // closure directly; this test pins the wiring through the main validator so a
+    // future regression that bypasses the closure for single-label hosts surfaces
+    // here too.
+    func testSingleLabelHostRejectedViaDefaultValidator() {
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@localhost"),
+                     "Single-label host `localhost` must be rejected by default validator")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@server"),
+                     "Single-label host `server` must be rejected by default validator")
+        XCTAssertNil(EmailSyntaxValidator.mailbox(from: "user@mailserver"),
+                     "Single-label host `mailserver` must be rejected by default validator")
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted("user@localhost"),
+                       "Boolean form must agree with mailbox(from:) on single-label rejection")
+    }
+
+    // MARK: - IPv4-mapped IPv6 end-to-end
+
+    func testIPv4MappedIPv6LiteralEndToEnd() {
+        // IPAddressValidatorTests covers the matcher; this test pins the full
+        // EmailSyntaxValidator flow for IPv4-mapped IPv6 literals so callers
+        // can rely on `[IPv6:::ffff:…]` round-tripping through the parser.
+        let permissive: (String) -> Bool = { _ in true }
+        let candidate = "user@[IPv6:::ffff:192.0.2.1]"
+        let parsed = EmailSyntaxValidator.mailbox(from: candidate,
+                                                  allowAddressLiteral: true,
+                                                  domainValidator: permissive)
+        XCTAssertEqual(parsed?.localPart, .dotAtom("user"),
+                       "Local part must round-trip through IPv4-mapped IPv6 literal flow")
+        XCTAssertEqual(parsed?.host, .addressLiteral("IPv6:::ffff:192.0.2.1"),
+                       "IPv4-mapped IPv6 literal must round-trip through full email flow (RFC 4291 §2.5.5)")
+        XCTAssertTrue(EmailSyntaxValidator.correctlyFormatted(candidate,
+                                                              allowAddressLiteral: true,
+                                                              domainValidator: permissive),
+                      "Boolean form must agree with mailbox(from:) on IPv4-mapped IPv6 literals")
+    }
+
     // MARK: - Address literal edge cases (regression guard)
 
     func testIPv6AddressLiteralEdgeCasesRejected() {
