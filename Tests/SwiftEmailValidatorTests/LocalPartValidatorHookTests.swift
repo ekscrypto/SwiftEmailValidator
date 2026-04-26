@@ -109,15 +109,18 @@ final class LocalPartValidatorHookTests: XCTestCase {
         }
 
         // Unicode input that would auto-encode to RFC2047 under
-        // `.asciiWithUnicodeExtension`. The hook is invoked on the
-        // (successful) recursive pass exactly once.
-        _ = EmailSyntaxValidator.mailbox(
+        // `.asciiWithUnicodeExtension`. First pass: RFC2047.decode fails,
+        // ASCII extraction rejects the non-ASCII scalar, then `candidateForRfc2047`
+        // re-encodes and recurses. Second pass: RFC2047.decode succeeds, the
+        // decoded form parses as a Unicode dot-atom, and the hook runs once.
+        let result = EmailSyntaxValidator.mailbox(
             from: "héllo@site.com",
             options: [.autoEncodeToRfc2047],
             compatibility: .asciiWithUnicodeExtension,
             domainValidator: comOnlyDomainValidator,
             localPartValidator: count)
 
-        XCTAssertLessThanOrEqual(invocations, 1)
+        XCTAssertNotNil(result, "Auto-encode retry path must succeed for Unicode input")
+        XCTAssertEqual(invocations, 1, "Hook must be invoked exactly once on the successful retry pass")
     }
 }

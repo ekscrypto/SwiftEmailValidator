@@ -97,6 +97,11 @@ final class TLDDomainValidatorTests: XCTestCase {
         XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("a.b.example.org"))
     }
 
+    // Defensive redundancy: once `.arpa` is in `specialUseTLDs`, `home.arpa` is
+    // already rejected by `testRejectsArpaInfrastructureSubdomains` above. This
+    // test pins the `home.arpa` rule (RFC 8375) independently so that if a
+    // future refactor narrows the `.arpa` blocklist (e.g. to delivery-only
+    // labels), `home.arpa` still fails. See CLAUDE.md session 9 notes.
     func testRejectsHomeArpa() {
         XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("home.arpa"))
         XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("router.home.arpa"))

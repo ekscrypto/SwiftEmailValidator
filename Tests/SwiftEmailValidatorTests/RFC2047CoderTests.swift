@@ -178,6 +178,12 @@ final class RFC2047CoderTests: XCTestCase {
             XCTFail("Round-trip encoding/decoding failed for ASCII string")
             return
         }
+        // Pin the canonical wire form. Without this, a future encoder change that
+        // produced any reversible blob (e.g. a different charset/encoding triplet,
+        // hex, or an obfuscation scheme) would still satisfy the equality below.
+        // 15-byte ASCII payload → 20 base64 chars, no `=` padding (15 % 3 == 0).
+        XCTAssertEqual(encoded, "=?utf-8?b?dXNlckBkb21haW4uY29t?=",
+                       "Encoded intermediate must match the canonical RFC 2047 wire form")
         XCTAssertEqual(decoded, original, "ASCII string should survive encode/decode round-trip")
     }
 

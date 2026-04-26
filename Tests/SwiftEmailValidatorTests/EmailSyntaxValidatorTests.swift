@@ -54,7 +54,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         XCTAssertNil(baseMailboxLocalPartValidation(";@site.com"), "Semi-colon not allowed in dot-Atom notation")
         XCTAssertNil(baseMailboxLocalPartValidation("u\"@site.com"), "Double-quote not allowed in dot-Atom notation")
         XCTAssertNil(baseMailboxLocalPartValidation("user.\"name\"@site.com"), "Double-quote not allowed in dot-Atom notation")
-        XCTAssertNotEqual(baseMailboxLocalPartValidation("\"user\"@site.com"), .dotAtom("user"))
+        XCTAssertEqual(baseMailboxLocalPartValidation("\"user\"@site.com"), .quotedString("user"), "Quoted form of a bare-word local part must parse as quotedString, not dotAtom")
     }
     
     func testSimpleQuotedLocalPart() {

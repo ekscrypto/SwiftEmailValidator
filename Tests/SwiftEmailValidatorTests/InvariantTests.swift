@@ -73,10 +73,14 @@ final class InvariantTests: XCTestCase {
         }
     }
 
-    /// Pure-ASCII candidates that pass `.unicode` validation should also pass
-    /// `.ascii` validation. The ASCII subset of the allowed character set must
-    /// never narrow when widened to `.unicode`.
-    func testAsciiAcceptanceImpliesUnicodeAcceptance() {
+    /// `.ascii` and `.unicode` modes must agree exactly across the ASCII printable
+    /// range. The Unicode mode is a proper superset of ASCII *only* via non-ASCII
+    /// scalars; inside U+0020–U+007E the two modes share `atextCharacterSet` and
+    /// `qtextSMTPCharacterSet`, so the accept/reject verdict must match for every
+    /// scalar. Asymmetric tests would let a future change (e.g. tightening Unicode
+    /// mode but leaving ASCII alone, or vice versa) drift undetected for ASCII
+    /// inputs — the inputs most callers actually pass.
+    func testAsciiAndUnicodeAgreeOnPrintableASCII() {
         for value in UInt32(0x20)...UInt32(0x7E) {
             guard let scalar = Unicode.Scalar(value) else { continue }
             let candidate = "u\(scalar)r@site.com"
@@ -84,10 +88,8 @@ final class InvariantTests: XCTestCase {
                 candidate, compatibility: .ascii, domainValidator: permissive)
             let unicodeOK = EmailSyntaxValidator.correctlyFormatted(
                 candidate, compatibility: .unicode, domainValidator: permissive)
-            if asciiOK {
-                XCTAssertTrue(unicodeOK,
-                    "ASCII-accepted candidate '\(candidate)' must also be Unicode-accepted (scalar U+\(String(value, radix: 16, uppercase: true)))")
-            }
+            XCTAssertEqual(asciiOK, unicodeOK,
+                "ASCII and Unicode modes must agree on '\(candidate)' (scalar U+\(String(value, radix: 16, uppercase: true))) — ascii=\(asciiOK), unicode=\(unicodeOK)")
         }
     }
 
