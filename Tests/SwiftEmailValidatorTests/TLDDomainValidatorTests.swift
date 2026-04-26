@@ -118,4 +118,53 @@ final class TLDDomainValidatorTests: XCTestCase {
             "user@mail.corp",
             domainValidator: { _ in true }))
     }
+
+    // MARK: - Public-API input normalization
+    //
+    // `isPubliclyDeliverable(_:)` is a public entry point that may be called
+    // directly with user-supplied or copy-pasted hostnames. It must trim
+    // surrounding whitespace and fold IDNA-equivalent dot variants before
+    // dispatching to the raw worker. `EmailSyntaxValidator` skips this work
+    // by calling `_isPubliclyDeliverable(_:)` because its label-character
+    // validation already rejects whitespace and Unicode dots upstream.
+
+    func testTrimsSurroundingWhitespace() {
+        XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable(" iana.org"))
+        XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("iana.org "))
+        XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("\tiana.org\n"))
+        XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("  iana.org.  "))
+    }
+
+    func testFoldsUnicodeFullStopVariants() {
+        // U+3002 IDEOGRAPHIC FULL STOP (commonly entered on CJK keyboards)
+        XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("iana\u{3002}org"))
+        // U+FF0E FULLWIDTH FULL STOP
+        XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("iana\u{FF0E}org"))
+        // U+FF61 HALFWIDTH IDEOGRAPHIC FULL STOP
+        XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("iana\u{FF61}org"))
+    }
+
+    func testNormalizationStillEnforcesSpecialUseRules() {
+        // Whitespace + Unicode dots cannot be used to smuggle a reserved
+        // name past the special-use blocklist.
+        XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable(" example.com"))
+        XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("example\u{FF0E}com"))
+        XCTAssertFalse(TLDDomainValidator.isPubliclyDeliverable("foo\u{3002}arpa"))
+    }
+
+    func testRawWorkerDoesNotNormalize() {
+        // Defensive: pick cases where the lack of normalization actually
+        // changes the answer, to prove the raw worker assumes pre-cleaned
+        // input. Trailing whitespace lands in the TLD label and fails the
+        // IANATLDs lookup; a Unicode full stop does not split labels and
+        // collapses the host to a single label.
+        XCTAssertFalse(TLDDomainValidator._isPubliclyDeliverable("iana.org "),
+                       "Trailing whitespace contaminates the TLD label and should fail without normalization")
+        XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("iana.org "),
+                      "Public wrapper should trim and accept")
+        XCTAssertFalse(TLDDomainValidator._isPubliclyDeliverable("iana\u{3002}org"),
+                       "Unicode full stop does not split labels in the raw worker")
+        XCTAssertTrue(TLDDomainValidator.isPubliclyDeliverable("iana\u{3002}org"),
+                      "Public wrapper should fold U+3002 to '.' and accept")
+    }
 }

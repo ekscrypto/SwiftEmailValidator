@@ -33,7 +33,7 @@ public extension UTS39 {
     /// special-use blocklist) for registrability.
     static func domainValidator(
         _ policy: Policy = .init(),
-        base: @escaping (String) -> Bool = { TLDDomainValidator.isPubliclyDeliverable($0) }
+        base: @escaping (String) -> Bool = { TLDDomainValidator._isPubliclyDeliverable($0) }
     ) -> (String) -> Bool {
         return { candidate in
             // Each DNS label is checked in its user-facing (possibly Unicode)

@@ -37,7 +37,7 @@ public extension EmailSyntaxValidator {
         options: [Options] = [],
         compatibility: Compatibility = .unicode,
         allowAddressLiteral: Bool = false,
-        domainValidator: @escaping (String) -> Bool = { TLDDomainValidator.isPubliclyDeliverable($0) }
+        domainValidator: @escaping (String) -> Bool = { TLDDomainValidator._isPubliclyDeliverable($0) }
     ) -> Bool {
         return correctlyFormatted(
             candidate,
@@ -68,7 +68,7 @@ public extension EmailSyntaxValidator {
         options: [Options] = [],
         compatibility: Compatibility = .unicode,
         allowAddressLiteral: Bool = false,
-        domainValidator: @escaping (String) -> Bool = { TLDDomainValidator.isPubliclyDeliverable($0) }
+        domainValidator: @escaping (String) -> Bool = { TLDDomainValidator._isPubliclyDeliverable($0) }
     ) -> Mailbox? {
         return mailbox(
             from: candidate,

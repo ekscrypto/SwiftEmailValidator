@@ -82,6 +82,16 @@ public enum TLDDomainValidator {
         "home.arpa",    // RFC 8375  (also covered by .arpa specialUseTLD; kept as defensive redundancy)
     ]
 
+    // MARK: - Public API
+    //
+    // The public entry point first normalizes the input — trims surrounding
+    // whitespace and folds the IDNA-equivalent dot variants (U+3002, U+FF0E,
+    // U+FF61) to ASCII '.'. This makes the function safe for direct callers
+    // who pass user-supplied or copy-pasted hostnames. `EmailSyntaxValidator`
+    // uses the unprefixed internal variant `_isPubliclyDeliverable` because
+    // its label-character validation already rejects whitespace and Unicode
+    // dot variants before the closure is invoked.
+
     /// Validate `domain` as a publicly-deliverable email host.
     ///
     /// Returns `true` iff:
@@ -93,9 +103,39 @@ public enum TLDDomainValidator {
     /// Case-insensitive on the ASCII range. A single trailing root-label
     /// dot is tolerated (`example.com.` ≡ `example.com`).
     ///
+    /// Surrounding whitespace is trimmed. The IDNA-equivalent label
+    /// separators U+3002 (IDEOGRAPHIC FULL STOP), U+FF0E (FULLWIDTH FULL
+    /// STOP) and U+FF61 (HALFWIDTH IDEOGRAPHIC FULL STOP) are folded to
+    /// ASCII '.' before evaluation, matching UTS #46 §4 behavior.
+    ///
     /// Single-label inputs (`localhost`, `mailserver`) are rejected:
     /// RFC 5321 requires fully-qualified domain names in SMTP paths.
     public static func isPubliclyDeliverable(_ domain: String) -> Bool {
+        _isPubliclyDeliverable(normalizedHost(domain))
+    }
+
+    // MARK: - Raw API for pre-cleaned input
+    //
+    // The underscore prefix follows the same convention used by
+    // `IPAddressSyntaxValidator._matchIPv4` / `_matchIPv6`: this is the
+    // module-internal worker, exposed as `public` only because Swift requires
+    // default-argument values of public functions to reference public
+    // symbols (`EmailSyntaxValidator.correctlyFormatted` / `mailbox(from:)`
+    // wire it as their default `domainValidator`). External callers should
+    // prefer ``isPubliclyDeliverable(_:)``, which performs the input
+    // normalization this entry point assumes the caller has already done.
+
+    /// Raw worker used as the default `domainValidator` by `EmailSyntaxValidator`.
+    ///
+    /// Assumes the caller has already trimmed surrounding whitespace and
+    /// folded the IDNA-equivalent dot variants (U+3002 / U+FF0E / U+FF61)
+    /// to ASCII '.'. `EmailSyntaxValidator` satisfies this contract because
+    /// its label-character validation rejects whitespace and non-ASCII dots
+    /// before the domain closure runs.
+    ///
+    /// External callers passing user-supplied or copy-pasted hostnames
+    /// should call ``isPubliclyDeliverable(_:)`` instead.
+    public static func _isPubliclyDeliverable(_ domain: String) -> Bool {
         var d = domain.lowercased()
         if d.hasSuffix(".") { d.removeLast() }
         guard !d.isEmpty else { return false }
@@ -114,5 +154,16 @@ public enum TLDDomainValidator {
         }
 
         return IANATLDs.all.contains(tld)
+    }
+
+    /// Trim surrounding whitespace and fold IDNA-equivalent dot variants to
+    /// ASCII '.'. Matches UTS #46 §4 step 1 for the three label separators
+    /// recognized by IDNA processing.
+    private static func normalizedHost(_ domain: String) -> String {
+        var s = domain.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.contains("\u{3002}") { s = s.replacingOccurrences(of: "\u{3002}", with: ".") }
+        if s.contains("\u{FF0E}") { s = s.replacingOccurrences(of: "\u{FF0E}", with: ".") }
+        if s.contains("\u{FF61}") { s = s.replacingOccurrences(of: "\u{FF61}", with: ".") }
+        return s
     }
 }
