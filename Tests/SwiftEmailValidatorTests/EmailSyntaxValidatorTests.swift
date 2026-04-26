@@ -594,10 +594,11 @@ final class EmailSyntaxValidatorTests: XCTestCase {
             compatibility: .asciiWithUnicodeExtension,
             allowAddressLiteral: true
         )
-        XCTAssertNotNil(result, "Auto-encode with address literal should work")
-        if let mailbox = result {
-            XCTAssertTrue(mailbox.email.hasPrefix("=?utf-8?b?"), "Email should be RFC2047 encoded")
+        guard let mailbox = result else {
+            XCTFail("Auto-encode with address literal should work")
+            return
         }
+        XCTAssertTrue(mailbox.email.hasPrefix("=?utf-8?b?"), "Email should be RFC2047 encoded")
     }
 
     // MARK: - Phase 2: Custom Domain Validator Tests
@@ -647,13 +648,15 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     // MARK: - Phase 3: Dot/Special Character Sequence Tests
 
     func testMultipleDotsInVariousPositions() {
-        let validMultiDot = [
-            "a.b.c@site.com",
-            "a.b.c.d.e@site.com",
-            "first.middle.last@site.com"
+        // Pin the parsed dot-atom to catch a parser that silently drops trailing
+        // labels — XCTAssertNotNil alone would still pass for `.dotAtom("a.b")`.
+        let cases: [(email: String, expected: String)] = [
+            ("a.b.c@site.com", "a.b.c"),
+            ("a.b.c.d.e@site.com", "a.b.c.d.e"),
+            ("first.middle.last@site.com", "first.middle.last")
         ]
-        for email in validMultiDot {
-            XCTAssertNotNil(baseMailboxLocalPartValidation(email), "\(email) should be valid with multiple dots")
+        for (email, expected) in cases {
+            XCTAssertEqual(baseMailboxLocalPartValidation(email), .dotAtom(expected), "\(email) should parse to dot-atom \"\(expected)\"")
         }
     }
 
@@ -817,12 +820,29 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     }
 
     func testManyUnicodeCharactersInLocalPart() {
-        // 64 diverse Unicode characters from different scripts
-        let diverse = "한中あαбעعहবதతకಕමෆไᎠ" // Various scripts
-        let localPart = String(diverse.prefix(60)) // Stay under 64
+        // Build the largest diverse-script local part that still fits under the
+        // RFC 5321 §4.5.3.1.1 64-octet limit. Byte-aware packing — `String.prefix`
+        // counts grapheme clusters, not UTF-8 bytes, so the previous version
+        // (`prefix(60)` on a 17-cluster source) was a silent no-op and never
+        // exercised "many" characters.
+        let scalars: [Character] = [
+            "한", "中", "あ", "α", "б", "ע", "ع", "ह",
+            "ব", "த", "త", "క", "ಕ", "ම", "ෆ", "ไ",
+            "Ꭰ", "Ω", "Ψ", "κ"
+        ]
+        var localPart = ""
+        var byteCount = 0
+        for c in scalars {
+            let len = String(c).utf8.count
+            guard byteCount + len <= 60 else { break }
+            localPart.append(c)
+            byteCount += len
+        }
+        XCTAssertGreaterThan(localPart.unicodeScalars.count, 16, "Byte-aware packing must yield >16 scalars")
+        XCTAssertGreaterThan(byteCount, 40, "Byte-aware packing must produce a non-trivial UTF-8 length")
         let testEmail = "\(localPart)@site.com"
         let result = EmailSyntaxValidator.mailbox(from: testEmail, compatibility: .unicode, domainValidator: comOnlyDomainValidator)
-        XCTAssertNotNil(result, "Diverse Unicode characters should be valid in Unicode mode")
+        XCTAssertEqual(result?.localPart, .dotAtom(localPart), "Diverse Unicode local-part must round-trip exactly")
     }
 
     // MARK: - RFC Compliance Fixes

@@ -61,6 +61,17 @@ final class IPAddressValidatorTests: XCTestCase {
         "300.2.3.4"
     ]
 
+    /// Guards the `forEach` fixtures: each test below iterates an array and
+    /// would pass vacuously if the array were ever emptied. `setUp` precondition
+    /// keeps every per-test sweep meaningful without per-test boilerplate.
+    override func setUp() {
+        super.setUp()
+        XCTAssertFalse(validIPv4Addresses.isEmpty, "validIPv4Addresses fixture must not be empty")
+        XCTAssertFalse(invalidIPv4Addresses.isEmpty, "invalidIPv4Addresses fixture must not be empty")
+        XCTAssertFalse(validIPv6Addresses.isEmpty, "validIPv6Addresses fixture must not be empty")
+        XCTAssertFalse(invalidIPv6Addresses.isEmpty, "invalidIPv6Addresses fixture must not be empty")
+    }
+
     func testValidIPv6Addresses() {
         validIPv6Addresses.forEach { XCTAssertTrue(IPAddressSyntaxValidator.matchIPv6($0), "Expected \($0) to be a valid IPv6 address") }
     }

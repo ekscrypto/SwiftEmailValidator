@@ -105,9 +105,12 @@ final class InvariantTests: XCTestCase {
             "Every entry in IANATLDs.all must be lowercase — _isPubliclyDeliverable lowercases input before lookup, so a mixed-case generated entry would be unreachable")
     }
 
-    /// Validator must never crash or hang on arbitrary byte-sized inputs.
-    /// Deterministic enumeration of short ASCII byte strings drawn from the
-    /// printable + selected control range.
+    /// Validator must never crash or hang on arbitrary byte-sized inputs, AND
+    /// the dual-API contract (`correctlyFormatted` returns true iff `mailbox`
+    /// returns non-nil) must hold for every candidate. The triple-byte sweep
+    /// would otherwise pass vacuously — the assertion inside the loop turns
+    /// it into a real fuzz invariant. Both `.ascii` and `.unicode` modes are
+    /// exercised so a regression in either path fires.
     func testValidatorNeverCrashesOnShortByteStrings() {
         let probeBytes: [UInt8] = [
             0x00, 0x09, 0x0A, 0x0D, 0x1F,           // controls
@@ -120,11 +123,18 @@ final class InvariantTests: XCTestCase {
                 for b3 in probeBytes {
                     let bytes: [UInt8] = [b1, b2, b3]
                     guard let candidate = String(bytes: bytes, encoding: .utf8) else { continue }
-                    // Just confirm no crash. Result value is intentionally ignored.
-                    _ = EmailSyntaxValidator.mailbox(
+                    let mbU = EmailSyntaxValidator.mailbox(
                         from: candidate, compatibility: .unicode, domainValidator: permissive)
-                    _ = EmailSyntaxValidator.correctlyFormatted(
+                    let cfU = EmailSyntaxValidator.correctlyFormatted(
+                        candidate, compatibility: .unicode, domainValidator: permissive)
+                    XCTAssertEqual(cfU, mbU != nil,
+                        "Unicode mode disagree on bytes \(bytes.map { String(format: "%02x", $0) })")
+                    let mbA = EmailSyntaxValidator.mailbox(
+                        from: candidate, compatibility: .ascii, domainValidator: permissive)
+                    let cfA = EmailSyntaxValidator.correctlyFormatted(
                         candidate, compatibility: .ascii, domainValidator: permissive)
+                    XCTAssertEqual(cfA, mbA != nil,
+                        "ASCII mode disagree on bytes \(bytes.map { String(format: "%02x", $0) })")
                 }
             }
         }
