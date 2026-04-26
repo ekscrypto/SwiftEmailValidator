@@ -11,7 +11,16 @@
 
 import XCTest
 @testable import SwiftEmailValidator
-import SwiftPublicSuffixList
+
+/// Test helper: accept any domain whose rightmost label is `com` and has
+/// at least one non-empty preceding label. Replaces the legacy
+/// `PublicSuffixList.isUnrestricted($0, rules: [["com"]])` pattern after
+/// the dependency was removed in 1.6.0 — preserves the original test
+/// isolation (no IANA-list lookup, no special-use blocklist).
+private let comOnlyDomainValidator: (String) -> Bool = { domain in
+    let labels = domain.lowercased().split(separator: ".", omittingEmptySubsequences: false)
+    return labels.count >= 2 && labels.allSatisfy { !$0.isEmpty } && labels.last == "com"
+}
 
 final class EmailSyntaxValidatorTests: XCTestCase {
     
@@ -19,7 +28,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         EmailSyntaxValidator.mailbox(
             from: candidate,
             allowAddressLiteral: false,
-            domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})?.localPart
+            domainValidator: comOnlyDomainValidator)?.localPart
     }
     
     func testDotAtomLocalPart() {
@@ -243,7 +252,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     func testLocalPartExactly63Characters() {
         let localPart63 = String(repeating: "x", count: 63)
         let testEmail = "\(localPart63)@site.com"
-        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})?.localPart, .dotAtom(localPart63), "63-character local part should be valid (just under 64 limit)")
+        XCTAssertEqual(EmailSyntaxValidator.mailbox(from: testEmail, domainValidator: comOnlyDomainValidator)?.localPart, .dotAtom(localPart63), "63-character local part should be valid (just under 64 limit)")
     }
 
     func testLocalPartExactlyOneCharacter() {
@@ -264,13 +273,13 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         // 30 × 4-byte chars = 120 UTF-8 bytes > 64-byte limit → rejected
         let localPart30 = String(repeating: fourByteChar, count: 30)
         let testEmail30 = "\(localPart30)@site.com"
-        let result30 = EmailSyntaxValidator.mailbox(from: testEmail30, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})
+        let result30 = EmailSyntaxValidator.mailbox(from: testEmail30, compatibility: .unicode, domainValidator: comOnlyDomainValidator)
         XCTAssertNil(result30, "30 four-byte Unicode characters (120 bytes) should be rejected since RFC 5321 local part limit is 64 octets")
 
         // 16 × 4-byte chars = 64 UTF-8 bytes = exactly the limit → accepted
         let localPart16 = String(repeating: fourByteChar, count: 16)
         let testEmail16 = "\(localPart16)@site.com"
-        let result16 = EmailSyntaxValidator.mailbox(from: testEmail16, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})
+        let result16 = EmailSyntaxValidator.mailbox(from: testEmail16, compatibility: .unicode, domainValidator: comOnlyDomainValidator)
         XCTAssertNotNil(result16, "16 four-byte Unicode characters (64 bytes exactly) should be valid")
     }
 
@@ -286,14 +295,14 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     func testEmojiInLocalPart() {
         let emojiEmail = "user😀@site.com"
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: emojiEmail, compatibility: .ascii), "Emoji should be rejected in ASCII mode")
-        XCTAssertNotNil(EmailSyntaxValidator.mailbox(from: emojiEmail, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])}), "Emoji should be accepted in Unicode mode")
+        XCTAssertNotNil(EmailSyntaxValidator.mailbox(from: emojiEmail, compatibility: .unicode, domainValidator: comOnlyDomainValidator), "Emoji should be accepted in Unicode mode")
     }
 
     func testCombiningMarksInLocalPart() {
         // café with combining acute accent (e + combining acute)
         let combiningEmail = "cafe\u{0301}@site.com"
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: combiningEmail, compatibility: .ascii), "Combining marks should be rejected in ASCII mode")
-        let result = EmailSyntaxValidator.mailbox(from: combiningEmail, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})
+        let result = EmailSyntaxValidator.mailbox(from: combiningEmail, compatibility: .unicode, domainValidator: comOnlyDomainValidator)
         XCTAssertNotNil(result, "Combining marks should be accepted in Unicode mode")
     }
 
@@ -301,7 +310,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         // Mathematical bold capital A (U+1D400) - beyond BMP
         let mathEmail = "\u{1D400}@site.com"
         XCTAssertNil(EmailSyntaxValidator.mailbox(from: mathEmail, compatibility: .ascii), "High Unicode should be rejected in ASCII mode")
-        XCTAssertNotNil(EmailSyntaxValidator.mailbox(from: mathEmail, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])}), "High Unicode (beyond BMP) should be accepted in Unicode mode")
+        XCTAssertNotNil(EmailSyntaxValidator.mailbox(from: mathEmail, compatibility: .unicode, domainValidator: comOnlyDomainValidator), "High Unicode (beyond BMP) should be accepted in Unicode mode")
     }
 
     func testZeroWidthCharacters() {
@@ -309,7 +318,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         // Allowing it would let "a\u{200D}b" and "ab" appear identical while being distinct addresses.
         let zwjEmail = "a\u{200D}b@site.com"
         XCTAssertNil(
-            EmailSyntaxValidator.mailbox(from: zwjEmail, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])}),
+            EmailSyntaxValidator.mailbox(from: zwjEmail, compatibility: .unicode, domainValidator: comOnlyDomainValidator),
             "Zero-width joiner (U+200D) must be rejected to prevent email address spoofing"
         )
     }
@@ -368,7 +377,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     func testQuotedStringWithMultipleAtSymbols() {
         // Multiple @ inside quoted string should be valid
         let multiAtEmail = #""user@fake@also"@site.com"#
-        let result = EmailSyntaxValidator.mailbox(from: multiAtEmail, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})
+        let result = EmailSyntaxValidator.mailbox(from: multiAtEmail, domainValidator: comOnlyDomainValidator)
         XCTAssertEqual(result?.localPart, .quotedString("user@fake@also"), "Multiple @ symbols inside quoted string should be valid")
         XCTAssertEqual(result?.host, .domain("site.com"))
     }
@@ -376,7 +385,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
     func testQuotedStringWithRFC2047Decoding() {
         // RFC2047 encode a quoted string email: "Santa Claus"@site.com
         let rfc2047Encoded = "=?iso-8859-1?q?\"Santa=20Claus\"@site.com?="
-        let result = EmailSyntaxValidator.mailbox(from: rfc2047Encoded, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})
+        let result = EmailSyntaxValidator.mailbox(from: rfc2047Encoded, domainValidator: comOnlyDomainValidator)
         XCTAssertEqual(result?.localPart, .quotedString("Santa Claus"), "RFC2047 decoded quoted string should be valid")
     }
 
@@ -608,7 +617,7 @@ final class EmailSyntaxValidatorTests: XCTestCase {
         let diverse = "한中あαбעعहবதతకಕමෆไᎠ" // Various scripts
         let localPart = String(diverse.prefix(60)) // Stay under 64
         let testEmail = "\(localPart)@site.com"
-        let result = EmailSyntaxValidator.mailbox(from: testEmail, compatibility: .unicode, domainValidator: { PublicSuffixList.isUnrestricted($0, rules: [["com"]])})
+        let result = EmailSyntaxValidator.mailbox(from: testEmail, compatibility: .unicode, domainValidator: comOnlyDomainValidator)
         XCTAssertNotNil(result, "Diverse Unicode characters should be valid in Unicode mode")
     }
 

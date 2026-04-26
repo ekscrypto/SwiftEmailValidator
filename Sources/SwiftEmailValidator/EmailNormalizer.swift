@@ -106,7 +106,8 @@ public enum EmailNormalizer {
     /// such that its Punycode encoding (RFC 3492) no longer matches what the caller expected.
     /// Downstream domain validation should be prepared for this; the current
     /// `EmailSyntaxValidator` defers domain validation to a pluggable validator (default:
-    /// SwiftPublicSuffixList).
+    /// `TLDDomainValidator.isPubliclyDeliverable`, which checks the rightmost label against
+    /// the IANA root zone).
     ///
     /// - Parameter email: An email address string to normalize.
     /// - Returns: The NFKC-normalized form. Pure ASCII input is returned unchanged.

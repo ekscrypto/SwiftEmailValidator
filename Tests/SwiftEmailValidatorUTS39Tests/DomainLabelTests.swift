@@ -7,12 +7,11 @@
 
 import XCTest
 @testable import SwiftEmailValidatorUTS39
-import SwiftPublicSuffixList
 
 final class DomainLabelTests: XCTestCase {
 
     /// Permissive base that accepts any domain — isolates UTS #39 label
-    /// analysis from PSL registrability.
+    /// analysis from the default IANA TLD / special-use registrability check.
     private let allowAnyBase: (String) -> Bool = { _ in true }
 
     func testPureLatinDomainAccepted() {
@@ -30,9 +29,9 @@ final class DomainLabelTests: XCTestCase {
 
     func testPureCyrillicDomainAcceptedUnderHighlyRestrictive() {
         // A label in pure Cyrillic is single-script so passes Highly
-        // Restrictive. PSL would normally reject non-registered TLDs, but
-        // here we use the permissive base so we test the UTS #39 layer
-        // in isolation.
+        // Restrictive. The default validator would reject non-IANA TLDs,
+        // but here we use the permissive base so we test the UTS #39
+        // layer in isolation.
         let validator = UTS39.domainValidator(UTS39.Policy(), base: allowAnyBase)
         XCTAssertTrue(validator("пример.com"))
     }

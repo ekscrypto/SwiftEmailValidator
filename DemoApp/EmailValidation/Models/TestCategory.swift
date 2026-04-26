@@ -26,6 +26,8 @@ enum TestCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
     case tagCharacters = "Tag characters"
     case supplementaryPlaneAttacks = "Supplementary-plane attacks"
     case rfc2047ControlInjection = "RFC2047 control injection"
+    case reservedSpecialUseDomain = "Reserved special-use domain (RFC 6761/6762/7686/8375/9476)"
+    case unknownTLD = "Unknown / non-IANA TLD"
 
     // Valid categories
     case validStandard = "Valid standard"

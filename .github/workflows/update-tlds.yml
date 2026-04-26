@@ -1,0 +1,62 @@
+name: Refresh IANA TLD list
+
+# Re-runs Tools/generate_tlds.py against the upstream IANA root zone TLD
+# file daily. Opens (or updates) a PR if Sources/SwiftEmailValidator/Generated/IANATLDs.swift
+# changed. The workflow is also runnable on demand.
+#
+# Why a workflow rather than a build-time fetch:
+# - Build is offline by design (consumers shouldn't need network access).
+# - PR workflow gives a human review pass on every change.
+
+on:
+  schedule:
+    - cron: '17 4 * * *'   # 04:17 UTC daily — off-the-hour to avoid contention
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Regenerate IANATLDs.swift
+        run: python3 Tools/generate_tlds.py
+
+      - name: Detect change
+        id: diff
+        run: |
+          if git diff --quiet -- Sources/SwiftEmailValidator/Generated/IANATLDs.swift; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No upstream changes."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "IANA TLD list changed."
+          fi
+
+      - name: Open or update PR
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: 'chore(tlds): refresh IANA TLD list'
+          branch: chore/refresh-iana-tlds
+          delete-branch: true
+          title: 'chore(tlds): refresh IANA TLD list'
+          body: |
+            Automated refresh of `Sources/SwiftEmailValidator/Generated/IANATLDs.swift`
+            from `https://data.iana.org/TLD/tlds-alpha-by-domain.txt`.
+
+            Run `python3 Tools/generate_tlds.py` locally to regenerate.
+          add-paths: |
+            Sources/SwiftEmailValidator/Generated/IANATLDs.swift
+            CHANGELOG.md

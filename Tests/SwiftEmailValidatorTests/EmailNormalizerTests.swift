@@ -7,7 +7,14 @@
 
 import XCTest
 @testable import SwiftEmailValidator
-import SwiftPublicSuffixList
+
+/// Test helper: accept any domain whose rightmost label is `com`. Replaces
+/// `PublicSuffixList.isUnrestricted($0, rules: [["com"]])` after the
+/// dependency was removed in 1.6.0 — preserves test isolation.
+private let comOnlyDomainValidator: (String) -> Bool = { domain in
+    let labels = domain.lowercased().split(separator: ".", omittingEmptySubsequences: false)
+    return labels.count >= 2 && labels.allSatisfy { !$0.isEmpty } && labels.last == "com"
+}
 
 final class EmailNormalizerTests: XCTestCase {
 
@@ -94,7 +101,7 @@ final class EmailNormalizerTests: XCTestCase {
     func testNormalizationEnablesValidationOfFullwidthAt() {
         // A fullwidth '＠' fails validation directly, but normalizing first fixes it.
         let input = "user\u{FF20}site.com"
-        let validator: (String) -> Bool = { PublicSuffixList.isUnrestricted($0, rules: [["com"]]) }
+        let validator: (String) -> Bool = comOnlyDomainValidator
 
         XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted(input, domainValidator: validator),
                        "Precondition: raw fullwidth '＠' must not validate as an email")
@@ -128,7 +135,7 @@ final class EmailNormalizerTests: XCTestCase {
         // as a quoted-string local part, not as garbage.
         let input = "\"\u{FF41}\u{FF44}\u{FF4D}\u{FF49}\u{FF4E}\"@example.com"
         let normalized = EmailNormalizer.nfkc(input)
-        let validator: (String) -> Bool = { PublicSuffixList.isUnrestricted($0, rules: [["com"]]) }
+        let validator: (String) -> Bool = comOnlyDomainValidator
         let mailbox = EmailSyntaxValidator.mailbox(from: normalized, domainValidator: validator)
         XCTAssertEqual(mailbox?.localPart, .quotedString("admin"))
         XCTAssertEqual(mailbox?.host, .domain("example.com"))
@@ -161,7 +168,7 @@ final class EmailNormalizerTests: XCTestCase {
         XCTAssertGreaterThan(normalized.utf8.count, input.utf8.count,
                              "Precondition: NFKC must expand this input")
 
-        let validator: (String) -> Bool = { PublicSuffixList.isUnrestricted($0, rules: [["com"]]) }
+        let validator: (String) -> Bool = comOnlyDomainValidator
         XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted(normalized,
                                                                compatibility: .unicode,
                                                                domainValidator: validator),

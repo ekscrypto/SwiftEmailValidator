@@ -22,9 +22,10 @@ if args.contains("--reverse") {
     // iff at least one of our modes agrees (since a case like an emoji address
     // is only "valid" in .unicode). `.validOnlyInUnicodeMode` is counted as
     // passing iff .unicode agrees. We use a permissive `domainValidator` so
-    // PSL-based domain policy (our default) doesn't mask pure-syntax
-    // disagreements — e.g. evanrobertson's `admin@mailserver1` is a syntax-
-    // valid TLD-only domain that our PSL default rejects as policy, not syntax.
+    // the default IANA TLD + RFC 6761 special-use blocklist doesn't mask
+    // pure-syntax disagreements — e.g. evanrobertson's `admin@mailserver1`
+    // is a syntax-valid single-label domain that our default rejects as
+    // policy, not syntax.
 
     func ours(_ email: String, mode: EmailSyntaxValidator.Compatibility) -> Bool {
         EmailSyntaxValidator.correctlyFormatted(
@@ -36,9 +37,10 @@ if args.contains("--reverse") {
     }
 
     func oursDefault(_ email: String, mode: EmailSyntaxValidator.Compatibility) -> Bool {
-        // Default domainValidator = PSL-based. Shows the shipped behaviour
-        // for each competitor test case (relevant when a syntax-level lenient
-        // accept is expected to be caught by the default policy layer).
+        // Default domainValidator = TLDDomainValidator. Shows the shipped
+        // behaviour for each competitor test case (relevant when a
+        // syntax-level lenient accept is expected to be caught by the
+        // default policy layer).
         EmailSyntaxValidator.correctlyFormatted(email, compatibility: mode, allowAddressLiteral: true)
     }
 
@@ -49,7 +51,7 @@ if args.contains("--reverse") {
         let ourAscii: Bool
         let ourAsciiUnicode: Bool
         let ourUnicode: Bool
-        let defaultPSLUnicode: Bool
+        let defaultValidatorUnicode: Bool
     }
 
     let cases = ReverseCorpus.all
@@ -83,19 +85,20 @@ if args.contains("--reverse") {
                 case .validOnlyInUnicodeMode: return "valid (unicode only)"
                 }
             }()
-            let defaultPSL = oursDefault(c.email, mode: .unicode)
+            let defaultVerdict = oursDefault(c.email, mode: .unicode)
             disagreements.append(Disagreement(
                 source: c.source, email: c.email, competitorExpected: expStr,
                 ourAscii: a, ourAsciiUnicode: au, ourUnicode: u,
-                defaultPSLUnicode: defaultPSL
+                defaultValidatorUnicode: defaultVerdict
             ))
         }
     }
 
     print("# Reverse check — competitor test cases run through SwiftEmailValidator\n")
-    print("Using permissive `domainValidator: { _ in true }` so PSL-based domain policy")
-    print("(our default rejects single-label domains, public suffixes) does not count as")
-    print("a syntax disagreement. Input-length caps and character-set rules still apply.\n")
+    print("Using permissive `domainValidator: { _ in true }` so the default IANA TLD")
+    print("+ RFC 6761 special-use blocklist (which rejects single-label domains, bare")
+    print("TLDs, and reserved names) does not count as a syntax disagreement.")
+    print("Input-length caps and character-set rules still apply.\n")
     print("| Source | Total | Agreed | Disagreed |")
     print("|---|---:|---:|---:|")
     let sources = ["evanrobertson", "bdolewski", "jwelton", "igorrendulic"]
@@ -112,7 +115,7 @@ if args.contains("--reverse") {
         print("\n## Disagreements\n")
         print("Rows where our library's verdict differs from the competitor's test assertion.")
         print("`A`=`.ascii`, `A+U`=`.asciiWithUnicodeExtension`, `U`=`.unicode`.\n")
-        print("| Source | Input | Competitor | Ours syntax (A / A+U / U) | Default PSL (U) |")
+        print("| Source | Input | Competitor | Ours syntax (A / A+U / U) | Default validator (U) |")
         print("|---|---|---|---|---|")
         for d in disagreements {
             let display = d.email.unicodeScalars.map { s -> String in
@@ -120,12 +123,13 @@ if args.contains("--reverse") {
                     ? String(format: "\\u{%04X}", s.value) : String(s)
             }.joined()
             let ours = "\(d.ourAscii) / \(d.ourAsciiUnicode) / \(d.ourUnicode)"
-            print("| \(d.source) | `\(display)` | \(d.competitorExpected) | \(ours) | \(d.defaultPSLUnicode) |")
+            print("| \(d.source) | `\(display)` | \(d.competitorExpected) | \(ours) | \(d.defaultValidatorUnicode) |")
         }
-        print("\n`Default PSL (U)` column shows the shipped behaviour (our `.unicode` mode with")
-        print("the default `domainValidator` = `PublicSuffixList.isUnrestricted`). When it matches")
-        print("the competitor's expectation, the syntax-layer disagreement is caught by our default")
-        print("domain-policy layer — so the shipped library agrees with the competitor in practice.")
+        print("\n`Default validator (U)` column shows the shipped behaviour (our `.unicode` mode")
+        print("with the default `domainValidator` = `TLDDomainValidator.isPubliclyDeliverable`).")
+        print("When it matches the competitor's expectation, the syntax-layer disagreement is")
+        print("caught by our default domain-policy layer — so the shipped library agrees with")
+        print("the competitor in practice.")
     }
     exit(0)
 }
@@ -179,7 +183,7 @@ struct AdapterReport {
     let name: String
     let link: String
     let rfcCoverage: String
-    let pslIntegration: Bool
+    let domainValidation: Bool
     let passed: Int
     let failed: Int
     let skipped: Int
@@ -207,22 +211,22 @@ func runInProcess(key: String, cases: [EmailTestCase]) -> AdapterReport {
     let static_ = staticInfo(for: key)
     return AdapterReport(
         key: key, name: static_.name, link: static_.link,
-        rfcCoverage: static_.rfcCoverage, pslIntegration: static_.pslIntegration,
+        rfcCoverage: static_.rfcCoverage, domainValidation: static_.domainValidation,
         passed: passed, failed: failed, skipped: skipped,
         failedCases: failedCases.map { (email: $0.0, expected: $0.1, got: $0.2, category: $0.3) }
     )
 }
 
-func staticInfo(for key: String) -> (name: String, link: String, rfcCoverage: String, pslIntegration: Bool) {
+func staticInfo(for key: String) -> (name: String, link: String, rfcCoverage: String, domainValidation: Bool) {
     switch key {
-    case "OursAscii":                  return (OursAscii.name, OursAscii.link, OursAscii.rfcCoverage, OursAscii.pslIntegration)
-    case "OursAsciiUnicode":           return (OursAsciiUnicode.name, OursAsciiUnicode.link, OursAsciiUnicode.rfcCoverage, OursAsciiUnicode.pslIntegration)
-    case "OursUnicode":                return (OursUnicode.name, OursUnicode.link, OursUnicode.rfcCoverage, OursUnicode.pslIntegration)
-    case "EvanRobertsonAscii":         return (EvanRobertsonAscii.name, EvanRobertsonAscii.link, EvanRobertsonAscii.rfcCoverage, EvanRobertsonAscii.pslIntegration)
-    case "EvanRobertsonInternational": return (EvanRobertsonInternational.name, EvanRobertsonInternational.link, EvanRobertsonInternational.rfcCoverage, EvanRobertsonInternational.pslIntegration)
-    case "MimeParser":                 return (MimeParserAdapter.name, MimeParserAdapter.link, MimeParserAdapter.rfcCoverage, MimeParserAdapter.pslIntegration)
-    case "Bdolewski":                  return (BdolewskiAdapter.name, BdolewskiAdapter.link, BdolewskiAdapter.rfcCoverage, BdolewskiAdapter.pslIntegration)
-    case "JweltonEquivalent":          return (JweltonEquivalentAdapter.name, JweltonEquivalentAdapter.link, JweltonEquivalentAdapter.rfcCoverage, JweltonEquivalentAdapter.pslIntegration)
+    case "OursAscii":                  return (OursAscii.name, OursAscii.link, OursAscii.rfcCoverage, OursAscii.domainValidation)
+    case "OursAsciiUnicode":           return (OursAsciiUnicode.name, OursAsciiUnicode.link, OursAsciiUnicode.rfcCoverage, OursAsciiUnicode.domainValidation)
+    case "OursUnicode":                return (OursUnicode.name, OursUnicode.link, OursUnicode.rfcCoverage, OursUnicode.domainValidation)
+    case "EvanRobertsonAscii":         return (EvanRobertsonAscii.name, EvanRobertsonAscii.link, EvanRobertsonAscii.rfcCoverage, EvanRobertsonAscii.domainValidation)
+    case "EvanRobertsonInternational": return (EvanRobertsonInternational.name, EvanRobertsonInternational.link, EvanRobertsonInternational.rfcCoverage, EvanRobertsonInternational.domainValidation)
+    case "MimeParser":                 return (MimeParserAdapter.name, MimeParserAdapter.link, MimeParserAdapter.rfcCoverage, MimeParserAdapter.domainValidation)
+    case "Bdolewski":                  return (BdolewskiAdapter.name, BdolewskiAdapter.link, BdolewskiAdapter.rfcCoverage, BdolewskiAdapter.domainValidation)
+    case "JweltonEquivalent":          return (JweltonEquivalentAdapter.name, JweltonEquivalentAdapter.link, JweltonEquivalentAdapter.rfcCoverage, JweltonEquivalentAdapter.domainValidation)
     default: fatalError("unknown adapter key \(key)")
     }
 }
@@ -242,13 +246,13 @@ let verbose = args.contains("--verbose")
 
 print("# Email validator library comparison\n")
 print("Corpus: **\(cases.count)** test cases from SwiftEmailValidator's DemoApp (`Benchmarks/Sources/EmailBench/TestData.swift`).\n")
-print("| Library | RFC coverage | PSL | Passed | Failed | Skipped | Accuracy¹ |")
+print("| Library | RFC coverage | Domain validation | Passed | Failed | Skipped | Accuracy¹ |")
 print("|---|---|---:|---:|---:|---:|---:|")
 for r in reports {
-    let psl = r.pslIntegration ? "✅" : "—"
+    let dv = r.domainValidation ? "✅" : "—"
     let skip = r.skipped == 0 ? "0" : "\(r.skipped)²"
     let pct = String(format: "%.1f%%", r.accuracy * 100)
-    print("| [\(r.name)](\(r.link)) | \(r.rfcCoverage) | \(psl) | \(r.passed) | \(r.failed) | \(skip) | \(pct) |")
+    print("| [\(r.name)](\(r.link)) | \(r.rfcCoverage) | \(dv) | \(r.passed) | \(r.failed) | \(skip) | \(pct) |")
 }
 
 print("""

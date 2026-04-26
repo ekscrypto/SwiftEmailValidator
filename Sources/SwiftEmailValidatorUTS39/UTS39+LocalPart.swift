@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import SwiftPublicSuffixList
+import SwiftEmailValidator
 
 public extension UTS39 {
 
@@ -28,11 +28,12 @@ public extension UTS39 {
     ///
     /// The returned closure splits the domain on `.` and runs the policy
     /// against each label independently — per UTS #39 §5.1, each IDN label is
-    /// its own identifier. It then delegates to `base` (default: the
-    /// standard Public Suffix List check) for registrability.
+    /// its own identifier. It then delegates to `base` (default:
+    /// ``TLDDomainValidator/isPubliclyDeliverable(_:)`` — IANA TLD list +
+    /// special-use blocklist) for registrability.
     static func domainValidator(
         _ policy: Policy = .init(),
-        base: @escaping (String) -> Bool = { PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0)) }
+        base: @escaping (String) -> Bool = { TLDDomainValidator.isPubliclyDeliverable($0) }
     ) -> (String) -> Bool {
         return { candidate in
             // Each DNS label is checked in its user-facing (possibly Unicode)

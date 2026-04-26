@@ -9,7 +9,7 @@ enum JweltonEquivalentAdapter: ValidatorAdapter {
     static let name = "jwelton/EmailValidator (via NSDataDetector)"
     static let link = "https://github.com/jwelton/EmailValidator"
     static let rfcCoverage = "Apple NSDataDetector (unspecified)"
-    static let pslIntegration = false
+    static let domainValidation = false
     static let referenceMethod: ValidationMethod = .nsDataDetector
 
     private static let detector: NSDataDetector? = try? NSDataDetector(

@@ -17,27 +17,22 @@ let package = Package(
             name: "SwiftEmailValidatorUTS39",
             targets: ["SwiftEmailValidatorUTS39"]),
     ],
-    dependencies: [
-        .package(
-            url: "https://github.com/ekscrypto/SwiftPublicSuffixList.git",
-            .upToNextMajor(from: "3.1.0")
-        ),
-    ],
+    dependencies: [],
     targets: [
         .target(
             name: "SwiftEmailValidator",
-            dependencies: ["SwiftPublicSuffixList"],
+            dependencies: [],
             resources: []),
         .target(
             name: "SwiftEmailValidatorUTS39",
-            dependencies: ["SwiftEmailValidator", "SwiftPublicSuffixList"],
+            dependencies: ["SwiftEmailValidator"],
             exclude: ["Tools"],
             resources: []),
         .testTarget(
             name: "SwiftEmailValidatorTests",
-            dependencies: ["SwiftEmailValidator","SwiftPublicSuffixList"]),
+            dependencies: ["SwiftEmailValidator"]),
         .testTarget(
             name: "SwiftEmailValidatorUTS39Tests",
-            dependencies: ["SwiftEmailValidatorUTS39", "SwiftEmailValidator", "SwiftPublicSuffixList"]),
+            dependencies: ["SwiftEmailValidatorUTS39", "SwiftEmailValidator"]),
     ]
 )

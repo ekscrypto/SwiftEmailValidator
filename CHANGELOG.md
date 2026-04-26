@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-04-25
+
+### Removed
+
+- **`SwiftPublicSuffixList` dependency.** The package no longer pulls
+  any third-party Swift dependency. The Public Suffix List was the wrong
+  primitive for email validation: it was designed for cookie scoping and
+  its multi-level / PRIVATE-section entries are policy artifacts of
+  specific registries, with weekly churn driven by non-email concerns.
+
+### Added
+
+- **`TLDDomainValidator` (new public type).** Default domain validator
+  used by `EmailSyntaxValidator`. Confirms the rightmost DNS label is a
+  currently-delegated IANA TLD (ACE `xn--…` and Unicode U-label forms
+  both accepted) and rejects names reserved by the IETF Special-Use
+  Domain Names registry:
+  - `.test` (RFC 6761 §6.2)
+  - `.example`, `example.com`, `example.net`, `example.org` (RFC 6761 §6.5)
+  - `.invalid` (RFC 6761 §6.4)
+  - `.localhost` (RFC 6761 §6.3)
+  - `.local` (RFC 6762 — mDNS)
+  - `.onion` (RFC 7686 — Tor)
+  - `.alt` (RFC 9476)
+  - `home.arpa` (RFC 8375)
+
+  Subdomains under any of these are also rejected.
+- **`Sources/SwiftEmailValidator/Generated/IANATLDs.swift`** — bundled
+  IANA TLD set (~1,400 ACE + ~150 U-label entries). Auto-generated; do
+  not edit by hand.
+- **`Tools/generate_tlds.py`** — Python 3 stdlib-only generator that
+  fetches `https://data.iana.org/TLD/tlds-alpha-by-domain.txt`, expands
+  ACE TLDs to U-labels via `encodings.idna.ToUnicode`, and writes the
+  Swift source. Records source URL, fetch timestamp, and SHA-256.
+- **`.github/workflows/update-tlds.yml`** — nightly workflow that
+  refreshes the bundled TLD list and opens a PR if it changed.
+- **`TLDDomainValidatorTests`** — new test class covering real TLDs,
+  fake TLDs, special-use rejection, IDN handling, case insensitivity,
+  trailing root dot, and wiring as the validator default.
+
+### Changed
+
+- **Default `domainValidator` closure** on
+  `EmailSyntaxValidator.correctlyFormatted` and `mailbox(from:)` switched
+  from
+  `{ PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0)) }`
+  to
+  `{ TLDDomainValidator.isPubliclyDeliverable($0) }`.
+- **`UTS39.domainValidator(_:base:)` default base closure** likewise
+  switched from PSL to `TLDDomainValidator`.
+- **`EmailSyntaxValidator.correctlyFormatted(_:uts39:)` and
+  `mailbox(from:uts39:)` convenience overloads** likewise switched.
+- **README & benchmark output** rewritten to describe the new default
+  and the rationale for moving off the PSL.
+
+### Migration notes
+
+- **Drop the dependency:** remove `SwiftPublicSuffixList` from your
+  `Package.swift`. SwiftEmailValidator no longer requires it.
+- **`@example.com` / `@example.net` / `@example.org`** now fail the
+  default validator (RFC 6761 §6.5). If your tests or sample addresses
+  used these, switch to a real public domain (`@iana.org` is stable) or
+  pass a permissive `domainValidator: { _ in true }`.
+- **`@localhost`, `@host.local`, intranet domains** also fail the
+  default. Pass a custom `domainValidator` closure if your application
+  accepts these — see "Domain validation" in the README.
+- **PSL-based custom rules:** if you were calling
+  `PublicSuffixList.isUnrestricted($0, rules: customRules)`, replace
+  with your own closure (the test suite has examples of a simple
+  TLD-allowlist closure in `LocalPartValidatorHookTests`).
+- **Newly-delegated TLDs:** the bundled list ships frozen at the
+  release SHA. The nightly GitHub workflow keeps the canonical copy
+  current; downstream consumers waiting for a tagged release can
+  override `domainValidator` with their own check or run
+  `python3 Tools/generate_tlds.py` and ship the regenerated file.
+
 ## [1.5.0] - 2026-04-23
 
 ### Added

@@ -8,13 +8,12 @@
 import XCTest
 @testable import SwiftEmailValidatorUTS39
 import SwiftEmailValidator
-import SwiftPublicSuffixList
 
 final class ConvenienceAPITests: XCTestCase {
 
-    /// PSL-bypass domain validator for tests that need to exercise the
-    /// UTS #39 layer without depending on PSL rules. Any UTS #39 policy
-    /// still applies to labels via the caller's explicit override.
+    /// Permissive domain validator: skips the default IANA TLD /
+    /// special-use blocklist so these tests focus on UTS #39 behavior.
+    /// The UTS #39 policy still applies to labels via the convenience API.
     private let permissiveDomain: (String) -> Bool = { _ in true }
 
     // MARK: - correctlyFormatted(_:uts39:)
@@ -96,12 +95,23 @@ final class ConvenienceAPITests: XCTestCase {
             domainValidator: permissiveDomain))
     }
 
-    // MARK: - Default validator path (PSL integration)
+    // MARK: - Default validator path (TLDDomainValidator integration)
 
-    func testDefaultPSLPathAcceptsRealDomain() {
-        // Without domainValidator override, PSL gating applies. Use a
-        // well-known public domain that PSL accepts.
+    func testDefaultValidatorPathAcceptsRealDomain() {
+        // Without a `domainValidator` override the default
+        // `TLDDomainValidator.isPubliclyDeliverable` runs. `example.com`
+        // is in the RFC 6761 §6.5 special-use blocklist and is therefore
+        // rejected; pick a real, deliverable public domain instead.
         XCTAssertTrue(EmailSyntaxValidator.correctlyFormatted(
+            "alice@iana.org",
+            uts39: UTS39.Policy()))
+    }
+
+    func testDefaultValidatorPathRejectsReservedExampleDomain() {
+        // RFC 6761 §6.5 — `example.com` (and `.net`/`.org`) must not be
+        // treated as deliverable email hosts. The default validator
+        // enforces this.
+        XCTAssertFalse(EmailSyntaxValidator.correctlyFormatted(
             "alice@example.com",
             uts39: UTS39.Policy()))
     }

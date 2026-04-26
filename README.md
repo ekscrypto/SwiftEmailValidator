@@ -2,10 +2,10 @@
 
 # SwiftEmailValidator
 
-A Swift implementation of an international email address syntax validator based on RFC822, RFC2047, RFC5321, RFC5322, RFC6531, RFC6532 and UTS #39. 
-Since email addresses are local @ remote the validator also includes IPAddressSyntaxValidator and the SwiftPublicSuffixList library.
+A Swift implementation of an international email address syntax validator based on RFC822, RFC2047, RFC5321, RFC5322, RFC6531, RFC6532 and UTS #39.
+Since email addresses are local @ remote the validator also includes `IPAddressSyntaxValidator` and a built-in `TLDDomainValidator` (IANA root zone + IETF special-use blocklist).
 
-This Swift Package does not require an Internet connection at runtime and the only dependency is the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library.
+This Swift Package does not require an Internet connection at runtime and has **no third-party dependencies**. Default domain validation is built in (see [Domain validation](#domain-validation) below).
 
 The package ships **two library products**: `SwiftEmailValidator` (core RFC syntax validation, always-on) and `SwiftEmailValidatorUTS39` (opt-in Unicode Security Mechanisms — mixed-script detection, confusable skeletons, Identifier_Status filtering). The UTS #39 target carries ~280 KB of Unicode data and is imported separately so the core library stays slim. See [SwiftEmailValidatorUTS39](#swiftemailvalidatoruts39-unicode-security-mechanisms) below.
 
@@ -34,14 +34,61 @@ Then depend on **one or both** library products from your target:
             .product(name: "SwiftEmailValidatorUTS39", package: "SwiftEmailValidator"),
         ])
 
-## Public Suffix List
+## Domain validation
 
-By default, domains are validated against the [Public Suffix List](https://publicsuffix.org) using the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library.
+By default, domains are validated by `TLDDomainValidator.isPubliclyDeliverable(_:)`, which:
 
-### Notes:
-* The [Public Suffix List](https://publicsuffix.org) is updated regularly. If your application is published regularly you may be fine by simply pulling the latest version of the SwiftPublicSuffixList library.  However it is recommended to have
-your application retrieve the latest copy of the public suffix list on a somewhat regular basis.  Details on how to accomplish this are available in the [SwiftPublicSuffixList](https://github.com/ekscrypto/SwiftPublicSuffixList) library page.  You can then use the domainValidator parameter to specify the closure to use for the domain validation.  See "Using Custom SwiftPublicSuffixList Rules" below.
-* You can bypass the Public Suffix List altogether and use your own custom Regex if desired. See "Bypassing SwiftPublicSuffixList" below.
+1. Confirms the rightmost DNS label is a currently-delegated **IANA TLD** (both ACE `xn--…` and Unicode U-label forms accepted).
+2. Rejects names reserved by the **IETF Special-Use Domain Names registry** (RFC 6761, RFC 6762, RFC 7686, RFC 8375, RFC 9476):
+
+   | Reserved | RFC | Notes |
+   |---|---|---|
+   | `.test` | 6761 §6.2 | Testing only |
+   | `.example`, `example.com`, `example.net`, `example.org` | 6761 §6.5 | Reserved for documentation |
+   | `.invalid` | 6761 §6.4 | Always invalid |
+   | `.localhost` | 6761 §6.3 | Loopback |
+   | `.local` | 6762 | mDNS / link-local |
+   | `.onion` | 7686 | Tor hidden services |
+   | `.alt` | 9476 | Non-DNS use |
+   | `home.arpa` | 8375 | Homenet |
+
+   Subdomains under any of these are also rejected.
+
+### Why not the Public Suffix List?
+
+The PSL was designed for **cookie scoping**, not email deliverability. Its multi-level entries (`co.uk`, `github.io`, `vercel.app`) are policy artifacts of specific registries, change weekly, and the PRIVATE section in particular has nothing to do with mail delivery. The IANA root zone is the canonical source for "is this label a delegated TLD?" — much smaller (~1.4 k entries) and updated only when ICANN delegates new TLDs.
+
+`SwiftEmailValidator` previously depended on `SwiftPublicSuffixList`; that dependency was removed in **1.6.0**. See [CHANGELOG](CHANGELOG.md#160) for the migration path.
+
+### Keeping the IANA list fresh
+
+The bundled list is generated from the [IANA root zone TLD file](https://data.iana.org/TLD/tlds-alpha-by-domain.txt) by `Tools/generate_tlds.py`. A nightly GitHub workflow refreshes `Sources/SwiftEmailValidator/Generated/IANATLDs.swift` and opens a PR if the upstream list changed. Run locally to refresh on demand:
+
+```bash
+python3 Tools/generate_tlds.py
+```
+
+For applications that need a more recent snapshot than the released package ships with, override the `domainValidator` closure with your own check.
+
+### Customizing or bypassing domain validation
+
+Pass a custom `domainValidator` closure to validate against your own rules — for intranet domains, dev environments, or any policy that differs from "publicly deliverable":
+
+```swift
+// Intranet — accept anything
+EmailSyntaxValidator.correctlyFormatted(
+    "user@mail.corp",
+    domainValidator: { _ in true })
+
+// Custom allowlist
+let allowedTLDs: Set<String> = ["com", "org"]
+EmailSyntaxValidator.correctlyFormatted(
+    "user@example.com",
+    domainValidator: { domain in
+        domain.lowercased().split(separator: ".").last
+            .flatMap { allowedTLDs.contains(String($0)) } ?? false
+    })
+```
 
 ## Classes & Usage
 
@@ -103,19 +150,26 @@ Forcing ASCII-only compatibility:
         // Email is valid for ASCII-only systems
     }
     
-#### Using Custom SwiftPublicSuffixList Rules
-If you implement your own PublicSuffixList rules, or manage your own local copy of the rules as recommended:
+#### Custom domain validation
 
-    let customRules: [[String]] = [["com"]]
-    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "santa.claus@northpole.com", domainValidator: { PublicSuffixList.isUnrestricted($0, rules: customRules)}) {
+Every `EmailSyntaxValidator` entry point accepts a `domainValidator: (String) -> Bool` closure that defaults to `TLDDomainValidator.isPubliclyDeliverable(_:)`. Return `true` to accept the domain, `false` to reject. See [Domain validation](#domain-validation) above for the full list of options.
+
+    // Restrict to a custom allowlist:
+    let allowedTLDs: Set<String> = ["com"]
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(
+        from: "santa.claus@northpole.com",
+        domainValidator: { domain in
+            domain.lowercased().split(separator: ".").last
+                .flatMap { allowedTLDs.contains(String($0)) } ?? false
+        }) {
         // mailboxInfo.localPart == .dotAtom("santa.claus")
         // mailboxInfo.host == .domain("northpole.com")
     }
 
-#### Bypassing SwiftPublicSuffixList
-The EmailSyntaxValidator functions all accept a domainValidator closure, which by default uses the SwiftPublicSuffixList library.  This closure should return true if the domain should be considered valid, or false to be rejected.
-
-    if let mailboxInfo = EmailSyntaxValidator.mailbox(from: "santa.claus@Ho Ho Ho North Pole", domainValidator: { _ in true }) {
+    // Bypass domain validation entirely (intranet / freeform hosts):
+    if let mailboxInfo = EmailSyntaxValidator.mailbox(
+        from: "santa.claus@Ho Ho Ho North Pole",
+        domainValidator: { _ in true }) {
         // mailboxInfo.localPart == .dotAtom("santa.claus")
         // mailboxInfo.host == .domain("Ho Ho Ho North Pole")
     }
@@ -292,17 +346,18 @@ let policy = UTS39.Policy()
 
 EmailSyntaxValidator.correctlyFormatted(
     candidate,
-    domainValidator: UTS39.domainValidator(policy),        // PSL + UTS #39 per label
+    domainValidator: UTS39.domainValidator(policy),        // TLDDomainValidator + UTS #39 per label
     localPartValidator: UTS39.localPartValidator(policy))  // UTS #39 on the local part
 ```
 
 `UTS39.domainValidator(_:base:)` accepts a custom base closure — by default
-it wraps `PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0))`:
+it wraps `TLDDomainValidator.isPubliclyDeliverable(_:)`:
 
 ```swift
-let customRules: [[String]] = [["com"], ["net"]]
-let domainValidator = UTS39.domainValidator(policy, base: {
-    PublicSuffixList.isUnrestricted($0, rules: customRules)
+let allowedTLDs: Set<String> = ["com", "net"]
+let domainValidator = UTS39.domainValidator(policy, base: { domain in
+    domain.lowercased().split(separator: ".").last
+        .flatMap { allowedTLDs.contains(String($0)) } ?? false
 })
 ```
 
@@ -360,7 +415,7 @@ Allows to decode ASCII-encoded Latin-1/Latin-2/Unicode email addresses from SMTP
 
 RFC 5321 requires a fully-qualified domain name in the `RCPT TO` / `MAIL FROM` path, so single-label hostnames such as `localhost` or `mailserver` are not valid in standard SMTP.
 
-The validator itself only checks syntax; whether a domain is accepted ultimately depends on the `domainValidator` closure. The default closure (`PublicSuffixList.isUnrestricted`) rejects single-label names because they have no registered public suffix. If you supply a permissive custom validator (`{ _ in true }`) single-label domains will be accepted. Make sure your validator enforces whatever hostname policy your application requires.
+The validator itself only checks syntax; whether a domain is accepted ultimately depends on the `domainValidator` closure. The default closure (`TLDDomainValidator.isPubliclyDeliverable`) rejects single-label names because they aren't fully-qualified. If you supply a permissive custom validator (`{ _ in true }`) single-label domains will be accepted. Make sure your validator enforces whatever hostname policy your application requires.
 
 ### Unicode normalization
 
@@ -418,9 +473,9 @@ pull the competitor dependencies.
 
 ### Libraries tested
 
-| Library | Tested revision | RFC coverage | PSL integration |
+| Library | Tested revision | RFC coverage | Domain validation |
 |---|---|---|---|
-| [SwiftEmailValidator](https://github.com/ekscrypto/SwiftEmailValidator) (this package) | 1.4.1 | RFC 822 / 2047 / 5321 / 5322 / 6531 | ✅ (pluggable via `domainValidator:`) |
+| [SwiftEmailValidator](https://github.com/ekscrypto/SwiftEmailValidator) (this package) | 1.4.1 | RFC 822 / 2047 / 5321 / 5322 / 6531 | ✅ IANA TLD + RFC 6761 special-use blocklist (pluggable via `domainValidator:`) |
 | [evanrobertson/EmailValidator](https://github.com/evanrobertson/EmailValidator) | `master` @ `ff80978` (untagged) | RFC 5322; optional i18n (RFC 653x) via `allowInternational:` | — |
 | [igorrendulic/MimeEmailParser](https://github.com/igorrendulic/MimeEmailParser) | 1.0.5 | RFC 5322 + RFC 2047 / 6532 | — |
 | [bdolewski/SwiftEmailValidator](https://github.com/bdolewski/SwiftEmailValidator) | `master` @ `85a0fc1` (regex vendored: the library's `EmailValidator` symbol has default/`internal` access and cannot be imported) | RFC 5322 (single regex) | — |
@@ -525,7 +580,8 @@ test corpora from each competitor's repo (evanrobertson: 96 cases,
 bdolewski: 18, jwelton: 6, igorrendulic: 24 — inner mailbox addresses only,
 since their suite parses `Name <mailbox>` envelopes we do not). Run them
 through our three compatibility modes with a permissive `domainValidator`,
-so PSL-based policy doesn't mask pure syntax disagreements. Reproduce with:
+so the default IANA TLD + special-use blocklist doesn't mask pure syntax
+disagreements. Reproduce with:
 
 ```bash
 swift run -c release EmailBench --reverse
@@ -541,18 +597,21 @@ swift run -c release EmailBench --reverse
 
 #### The 4 disagreements
 
-| Source | Input | Competitor | Ours syntax (A / A+U / U) | Default PSL (U) |
+| Source | Input | Competitor | Ours syntax (A / A+U / U) | Default validator (U) |
 |---|---|---|---|---|
 | evanrobertson | `another-invalid-ip@127.0.0.256` | invalid | true / true / true | **false** |
 | evanrobertson | `invalid-ip@127.0.0.1.26` | invalid | true / true / true | **false** |
 | evanrobertson | `unbracketed-IP@127.0.0.1` | invalid | true / true / true | **false** |
 | jwelton | `test@example` | invalid | true / true / true | **false** |
 
-* `Default PSL (U)` is the shipped behaviour: our `.unicode` mode with the
-  default `domainValidator` = `PublicSuffixList.isUnrestricted`.
-* When the `Default PSL` column matches the competitor's expectation, the
-  syntax-layer permissiveness is caught by the policy layer and the shipped
-  library agrees with the competitor.
+* `Default validator (U)` is the shipped behaviour: our `.unicode` mode
+  with the default `domainValidator` = `TLDDomainValidator.isPubliclyDeliverable`
+  (IANA TLD list + RFC 6761 special-use blocklist). `example` is rejected
+  because it has no TLD label; the IPv4-as-domain inputs are rejected
+  because the rightmost label is numeric and not a TLD.
+* When the `Default validator` column matches the competitor's expectation,
+  the syntax-layer permissiveness is caught by the default policy layer and
+  the shipped library agrees with the competitor.
 
 #### Assessment
 
@@ -564,7 +623,7 @@ swift run -c release EmailBench --reverse
   `127.0.0.1`, `example` as domains). Purely numeric labels and single-label
   hostnames are syntactically valid per RFC 1035 / 5322, so our syntax
   layer accepts them. evanrobertson and jwelton fold the rejection into
-  their syntax check. Our default `domainValidator` (`PublicSuffixList`)
+  their syntax check. Our default `domainValidator` (`TLDDomainValidator`)
   catches all four as policy. Applications that want them to validate can
   already pass `domainValidator: { _ in true }`; applications that want the
   competitors' behaviour get it with the default.

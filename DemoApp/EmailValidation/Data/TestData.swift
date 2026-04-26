@@ -34,7 +34,9 @@ struct TestData {
         variationSelectorsCases +
         tagCharactersCases +
         supplementaryPlaneAttacksCases +
-        rfc2047ControlInjectionCases
+        rfc2047ControlInjectionCases +
+        reservedSpecialUseDomainCases +
+        unknownTLDCases
 
     // MARK: - Valid Standard Email
 
@@ -384,5 +386,43 @@ struct TestData {
         EmailTestCase(email: #"=?iso-8859-1?q?"test=80"@site.com?="#, category: .rfc2047ControlInjection, expectedValid: false, description: "Q-encoded C1 control 0x80"),
         EmailTestCase(email: #"=?iso-8859-1?q?"test=90"@site.com?="#, category: .rfc2047ControlInjection, expectedValid: false, description: "Q-encoded C1 control 0x90"),
         EmailTestCase(email: #"=?iso-8859-1?q?"test=9F"@site.com?="#, category: .rfc2047ControlInjection, expectedValid: false, description: "Q-encoded C1 control 0x9F (last)"),
+    ]
+
+    // MARK: - Reserved Special-Use Domain Names
+    //
+    // The IETF Special-Use Domain Names registry (https://www.iana.org/assignments/special-use-domain-names)
+    // lists names that, by RFC, must not be treated as deliverable email
+    // hosts on the public Internet. These addresses are *syntactically*
+    // valid per RFC 5321/5322, so pure-syntax validators (NSDataDetector,
+    // NSPredicate-based) will accept them. SwiftEmailValidator's default
+    // `domainValidator` (`TLDDomainValidator.isPubliclyDeliverable`)
+    // rejects them per the cited RFCs.
+
+    static let reservedSpecialUseDomainCases: [EmailTestCase] = [
+        EmailTestCase(email: "user@example.com",        category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 6761 §6.5 — reserved for documentation"),
+        EmailTestCase(email: "user@example.net",        category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 6761 §6.5 — reserved for documentation"),
+        EmailTestCase(email: "user@example.org",        category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 6761 §6.5 — reserved for documentation"),
+        EmailTestCase(email: "user@subdomain.example.com", category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 6761 §6.5 — subdomain of reserved name"),
+        EmailTestCase(email: "user@anything.example",   category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 6761 §6.5 — `.example` TLD form"),
+        EmailTestCase(email: "user@host.test",          category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 6761 §6.2 — `.test` for testing"),
+        EmailTestCase(email: "user@host.invalid",       category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 6761 §6.4 — `.invalid` always invalid"),
+        EmailTestCase(email: "user@host.localhost",     category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 6761 §6.3 — `.localhost` loopback"),
+        EmailTestCase(email: "user@server.local",       category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 6762 — `.local` mDNS link-local"),
+        EmailTestCase(email: "user@deep.darkweb.onion", category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 7686 — `.onion` Tor hidden service"),
+        EmailTestCase(email: "user@mailbox.alt",        category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 9476 — `.alt` non-DNS use"),
+        EmailTestCase(email: "user@router.home.arpa",   category: .reservedSpecialUseDomain, expectedValid: false, description: "RFC 8375 — `home.arpa` homenet"),
+    ]
+
+    // MARK: - Unknown / Non-IANA TLD
+    //
+    // The rightmost label is not a currently-delegated IANA TLD. These
+    // addresses are syntactically valid but cannot resolve. Pure-syntax
+    // validators will accept them; SwiftEmailValidator's default rejects
+    // them via the bundled IANA TLD list.
+
+    static let unknownTLDCases: [EmailTestCase] = [
+        EmailTestCase(email: "user@host.notarealtld",   category: .unknownTLD, expectedValid: false, description: "Unknown TLD — not in IANA root zone"),
+        EmailTestCase(email: "user@host.zzzzz",         category: .unknownTLD, expectedValid: false, description: "Unknown TLD — not in IANA root zone"),
+        EmailTestCase(email: "user@host.fakedomain123", category: .unknownTLD, expectedValid: false, description: "Unknown TLD — not in IANA root zone"),
     ]
 }

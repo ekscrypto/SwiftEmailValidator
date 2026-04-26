@@ -15,7 +15,6 @@
 //  * RFC6532 https://datatracker.ietf.org/doc/html/rfc6532
 
 import Foundation
-import SwiftPublicSuffixList
 
 /// An RFC-compliant email syntax validator supporting international email addresses.
 ///
@@ -129,7 +128,7 @@ public final class EmailSyntaxValidator {
                                           options: [Options] = [],
                                           compatibility: Compatibility = .unicode,
                                           allowAddressLiteral: Bool = false,
-                                          domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0)) },
+                                          domainValidator: (String) -> Bool = { TLDDomainValidator.isPubliclyDeliverable($0) },
                                           localPartValidator: (String) -> Bool = { _ in true }) -> Bool {
 
         mailbox(from: candidate,
@@ -153,7 +152,7 @@ public final class EmailSyntaxValidator {
                                options: [Options] = [],
                                compatibility: Compatibility = .unicode,
                                allowAddressLiteral: Bool = false,
-                               domainValidator: (String) -> Bool = { PublicSuffixList.isUnrestricted(PublicSuffixList.ace($0)) },
+                               domainValidator: (String) -> Bool = { TLDDomainValidator.isPubliclyDeliverable($0) },
                                localPartValidator: (String) -> Bool = { _ in true }) -> Mailbox? {
         
         var smtpCandidate: String = candidate

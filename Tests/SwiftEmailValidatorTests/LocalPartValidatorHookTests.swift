@@ -10,12 +10,16 @@
 
 import XCTest
 @testable import SwiftEmailValidator
-import SwiftPublicSuffixList
 
 final class LocalPartValidatorHookTests: XCTestCase {
 
-    private let comOnly: (String) -> Bool = {
-        PublicSuffixList.isUnrestricted($0, rules: [["com"]])
+    /// Accept any domain whose rightmost label is `com`. Replaces the
+    /// legacy PSL-based test helper after the dependency was removed in
+    /// 1.6.0 — preserves test isolation from the IANA list / special-use
+    /// blocklist.
+    private let comOnly: (String) -> Bool = { domain in
+        let labels = domain.lowercased().split(separator: ".", omittingEmptySubsequences: false)
+        return labels.count >= 2 && labels.allSatisfy { !$0.isEmpty } && labels.last == "com"
     }
 
     func testDefaultHookPreservesBehavior() {
