@@ -191,20 +191,44 @@ def emit(entries: List[Tuple[int, int, int, List[int]]], version: str) -> str:
             length = 0
         encoded_rows.append((lo, hi, status, offset, length))
 
-    body.append(f"    /// {len(encoded_rows)} ranges.\n")
-    body.append(
-        "    /// Tuple format: (start, end, status, mappingOffset, mappingLength).\n"
-    )
-    body.append(
-        "    static let ranges: [(start: UInt32, end: UInt32, status: UInt8, mappingOffset: UInt32, mappingLength: UInt8)] = [\n"
-    )
-    for lo, hi, status, offset, length in encoded_rows:
-        body.append(
-            f"        (0x{lo:06X}, 0x{hi:06X}, {status}, {offset}, {length}),\n"
-        )
-    body.append("    ]\n\n")
+    body.append(f"    /// {len(encoded_rows)} ranges, stored as five parallel primitive arrays.\n")
+    body.append("    /// Indexed by row; e.g. row `i` covers scalars [rangeStart[i] … rangeEnd[i]]\n")
+    body.append("    /// with status `rangeStatus[i]`. For `mapped`/`deviation` rows the\n")
+    body.append("    /// substitute scalars live at `mappingsFlat[rangeMappingOffset[i] ..<\n")
+    body.append("    /// rangeMappingOffset[i] + Int(rangeMappingLength[i])]`.\n")
+    body.append("    ///\n")
+    body.append("    /// Stored as parallel arrays (rather than `[(…)]` tuples) so that\n")
+    body.append("    /// emit-module type-checks each homogeneous primitive array cheaply\n")
+    body.append("    /// — the previous tuple-array form OOMed GitHub-hosted macOS CI\n")
+    body.append("    /// runners during parallel module compilation alongside the UTS #39\n")
+    body.append("    /// data tables.\n")
+    body.append(f"    static let rangeCount: Int = {len(encoded_rows)}\n\n")
 
-    body.append(f"    /// {len(pool)} scalar payloads referenced by `ranges`.\n")
+    starts  = [r[0] for r in encoded_rows]
+    ends    = [r[1] for r in encoded_rows]
+    statuss = [r[2] for r in encoded_rows]
+    offsets = [r[3] for r in encoded_rows]
+    lengths = [r[4] for r in encoded_rows]
+
+    def emit_chunked(name: str, kind: str, vals, hex_pad: int = 0) -> None:
+        body.append(f"    static let {name}: [{kind}] = [\n")
+        chunk = 16
+        for i in range(0, len(vals), chunk):
+            slice_ = vals[i : i + chunk]
+            if hex_pad:
+                rendered = ", ".join(f"0x{v:0{hex_pad}X}" for v in slice_)
+            else:
+                rendered = ", ".join(str(v) for v in slice_)
+            body.append(f"        {rendered},\n")
+        body.append("    ]\n\n")
+
+    emit_chunked("rangeStart",         "UInt32", starts,  hex_pad=6)
+    emit_chunked("rangeEnd",           "UInt32", ends,    hex_pad=6)
+    emit_chunked("rangeStatus",        "UInt8",  statuss)
+    emit_chunked("rangeMappingOffset", "UInt32", offsets)
+    emit_chunked("rangeMappingLength", "UInt8",  lengths)
+
+    body.append(f"    /// {len(pool)} scalar payloads referenced by `rangeMappingOffset`.\n")
     body.append("    static let mappingsFlat: [UInt32] = [\n")
     chunk = 12
     for i in range(0, len(pool), chunk):

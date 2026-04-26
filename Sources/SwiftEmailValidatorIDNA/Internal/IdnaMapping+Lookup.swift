@@ -33,25 +33,24 @@ enum IdnaMappingLookup {
     /// `.disallowed` if the scalar is outside any range (defensive — the
     /// table covers the entire code-point space in current UCD versions).
     static func lookup(_ scalar: UInt32) -> IdnaScalarMapping {
-        let ranges = IdnaMappingData.ranges
         var lo = 0
-        var hi = ranges.count - 1
+        var hi = IdnaMappingData.rangeCount - 1
         while lo <= hi {
             let mid = (lo + hi) >> 1
-            let r = ranges[mid]
-            if scalar < r.start {
+            if scalar < IdnaMappingData.rangeStart[mid] {
                 hi = mid - 1
-            } else if scalar > r.end {
+            } else if scalar > IdnaMappingData.rangeEnd[mid] {
                 lo = mid + 1
             } else {
-                guard let status = IdnaStatus(rawValue: r.status) else {
+                guard let status = IdnaStatus(rawValue: IdnaMappingData.rangeStatus[mid]) else {
                     return IdnaScalarMapping(status: .disallowed, mapping: ArraySlice())
                 }
-                if r.mappingLength == 0 {
+                let length = IdnaMappingData.rangeMappingLength[mid]
+                if length == 0 {
                     return IdnaScalarMapping(status: status, mapping: ArraySlice())
                 }
-                let start = Int(r.mappingOffset)
-                let end = start + Int(r.mappingLength)
+                let start = Int(IdnaMappingData.rangeMappingOffset[mid])
+                let end = start + Int(length)
                 return IdnaScalarMapping(
                     status: status,
                     mapping: IdnaMappingData.mappingsFlat[start..<end])
