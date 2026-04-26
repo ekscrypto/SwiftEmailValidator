@@ -90,14 +90,27 @@ public enum IDNA {
         /// Default `true`.
         public var useSTD3ASCIIRules: Bool
 
+        /// `VerifyDnsLength` per UTS #46 §4.1 ToASCII step 5: each A-label
+        /// must be 1-63 octets and the total domain (excluding any trailing
+        /// root dot) must be 1-253 octets. Applies to all labels, both
+        /// pre-existing ASCII and freshly Punycode-encoded.
+        ///
+        /// Disable to use ``IDNA/toAscii(_:options:)`` purely as a
+        /// mapping/normalization step without DNS-layer length enforcement.
+        ///
+        /// Default `true`.
+        public var verifyDnsLength: Bool
+
         public init(
             transitional: Bool = false,
             checkHyphens: Bool = true,
-            useSTD3ASCIIRules: Bool = true
+            useSTD3ASCIIRules: Bool = true,
+            verifyDnsLength: Bool = true
         ) {
             self.transitional = transitional
             self.checkHyphens = checkHyphens
             self.useSTD3ASCIIRules = useSTD3ASCIIRules
+            self.verifyDnsLength = verifyDnsLength
         }
     }
 
@@ -116,7 +129,8 @@ public enum IDNA {
             domain,
             useSTD3ASCIIRules: options.useSTD3ASCIIRules,
             checkHyphens: options.checkHyphens,
-            transitional: options.transitional)
+            transitional: options.transitional,
+            verifyDnsLength: options.verifyDnsLength)
     }
 
     /// Apply UTS #46 §4 Processing without forcing ToASCII (UTS #46 ToUnicode).
@@ -128,17 +142,19 @@ public enum IDNA {
         _ domain: String,
         options: Options = Options()
     ) -> String? {
+        // UTS #46 §4 processing on an empty domain produces an empty
+        // result; per the conformance vectors that's surfaced as an X4_2
+        // error in the toUnicode column, mirroring the behavior of
+        // ToASCII under VerifyDnsLength.
+        if domain.isEmpty { return nil }
+
         guard let mapped = IdnaProcessing.applyMapping(
             domain,
             transitional: options.transitional
         ) else { return nil }
         let normalized = mapped.precomposedStringWithCanonicalMapping
 
-        let labels = normalized.split(
-            separator: ".",
-            maxSplits: Int.max,
-            omittingEmptySubsequences: false
-        ).map(String.init)
+        let labels = IdnaProcessing.splitLabels(normalized)
 
         var out: [String] = []
         out.reserveCapacity(labels.count)
@@ -148,16 +164,24 @@ public enum IDNA {
                 return nil
             }
             var u = label
+            // Decoded xn-- labels validate as Nontransitional per UTS #46
+            // §4 step 4 — see note in IdnaProcessing.toAscii.
+            let wasDecoded: Bool
             if u.lowercased().hasPrefix("xn--") {
                 let body = String(u.dropFirst(4))
                 guard let decoded = Punycode.decode(body) else { return nil }
+                if decoded.isEmpty { return nil }
+                if decoded.unicodeScalars.allSatisfy({ $0.isASCII }) { return nil }
                 u = decoded
+                wasDecoded = true
+            } else {
+                wasDecoded = false
             }
             guard IdnaProcessing.validateLabel(
                 u,
                 checkHyphens: options.checkHyphens,
                 useSTD3ASCIIRules: options.useSTD3ASCIIRules,
-                transitional: options.transitional
+                transitional: wasDecoded ? false : options.transitional
             ) else { return nil }
             out.append(u)
         }

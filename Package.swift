@@ -44,6 +44,7 @@ let package = Package(
             dependencies: ["SwiftEmailValidatorUTS39", "SwiftEmailValidator"]),
         .testTarget(
             name: "SwiftEmailValidatorIDNATests",
-            dependencies: ["SwiftEmailValidatorIDNA", "SwiftEmailValidator"]),
+            dependencies: ["SwiftEmailValidatorIDNA", "SwiftEmailValidator"],
+            resources: [.copy("Resources/IdnaTestV2.txt")]),
     ]
 )

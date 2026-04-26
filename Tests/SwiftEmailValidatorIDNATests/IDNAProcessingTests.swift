@@ -56,8 +56,16 @@ final class IDNAProcessingTests: XCTestCase {
         XCTAssertEqual(IDNA.toAscii("XN--MNCHEN-3YA.de"), "xn--mnchen-3ya.de")
     }
 
-    func testToAsciiPreservesTrailingRootDot() {
-        XCTAssertEqual(IDNA.toAscii("example.com."), "example.com.")
+    func testToAsciiRejectsTrailingRootDotWithVerifyDnsLength() {
+        // UTS #46 §4.2 ToASCII step 5 explicitly disallows the empty root
+        // label when VerifyDnsLength is on (the default).
+        XCTAssertNil(IDNA.toAscii("example.com."))
+    }
+
+    func testToAsciiPreservesTrailingRootDotWithoutVerify() {
+        // With the flag off, the empty root label passes through unchanged.
+        let opts = IDNA.Options(verifyDnsLength: false)
+        XCTAssertEqual(IDNA.toAscii("example.com.", options: opts), "example.com.")
     }
 
     func testToAsciiRejectsConsecutiveDots() {
@@ -126,12 +134,14 @@ final class IDNAProcessingTests: XCTestCase {
     }
 
     /// STD3 must also fire after Punycode-decoding an `xn--` label whose
-    /// decoded U-label contains non-LDH ASCII.
+    /// decoded U-label contains non-LDH ASCII. The decoded form must
+    /// include at least one non-ASCII scalar — UTS #46 §4 step 4 rejects
+    /// `xn--` labels that decode to all-ASCII (P4) regardless of STD3.
     func testToAsciiRejectsXNDecodedNonLDHWithSTD3() {
-        // Encode "a_b" via Punycode → get the ACE form, then assert STD3
+        // Encode "a_ß" via Punycode → get the ACE form, then assert STD3
         // rejects the resulting label after decode/revalidate.
-        guard let body = Punycode.encode("a_b") else {
-            return XCTFail("Punycode.encode(\"a_b\") returned nil")
+        guard let body = Punycode.encode("a_ß") else {
+            return XCTFail("Punycode.encode(\"a_ß\") returned nil")
         }
         let ace = "xn--" + body
         XCTAssertNil(IDNA.toAscii("\(ace).com"))
@@ -176,16 +186,56 @@ final class IDNAProcessingTests: XCTestCase {
 
     // MARK: - Empty / boundary
 
-    func testToAsciiEmptyString() {
-        // Empty input has zero labels and would yield empty output. Per
-        // RFC 5891 / SMTP, an empty domain is not deliverable — but UTS #46
-        // step 4 doesn't itself reject it. We mirror the spec; downstream
-        // base validators (TLDDomainValidator) reject empty.
-        XCTAssertEqual(IDNA.toAscii(""), "")
+    func testToAsciiEmptyStringRejectedWithVerifyDnsLength() {
+        // VerifyDnsLength (default on) requires the total domain to be
+        // 1-253 octets per UTS #46 §4.1 step 5; the empty input fails the
+        // lower bound.
+        XCTAssertNil(IDNA.toAscii(""))
+    }
+
+    func testToAsciiEmptyStringPassesWithoutVerifyDnsLength() {
+        // With the flag off, ToASCII becomes a pure mapping/normalization
+        // step and an empty input round-trips.
+        let opts = IDNA.Options(verifyDnsLength: false)
+        XCTAssertEqual(IDNA.toAscii("", options: opts), "")
     }
 
     func testToAsciiSingleLabelOK() {
         // UTS #46 doesn't require ≥2 labels — that's an SMTP-layer rule.
         XCTAssertEqual(IDNA.toAscii("localhost"), "localhost")
+    }
+
+    // MARK: - VerifyDnsLength
+
+    /// 64-character ASCII label exceeds the 63-octet per-label cap and
+    /// must be rejected even though every scalar is valid LDH.
+    func testToAsciiRejectsOversizedASCIILabel() {
+        let big = String(repeating: "a", count: 64)
+        XCTAssertNil(IDNA.toAscii("\(big).com"))
+    }
+
+    /// Same input passes when VerifyDnsLength is off.
+    func testToAsciiAcceptsOversizedASCIILabelWithoutVerify() {
+        let opts = IDNA.Options(verifyDnsLength: false)
+        let big = String(repeating: "a", count: 64)
+        XCTAssertEqual(IDNA.toAscii("\(big).com", options: opts), "\(big).com")
+    }
+
+    /// Total domain >253 octets must be rejected even when each label is
+    /// individually within the 63-octet cap.
+    func testToAsciiRejectsOversizedTotalDomain() {
+        let label = String(repeating: "a", count: 60)
+        // 5 × 60-char labels + 4 dots = 304 octets, well over 253.
+        let huge = Array(repeating: label, count: 5).joined(separator: ".")
+        XCTAssertNil(IDNA.toAscii(huge))
+    }
+
+    /// 3 labels of 63 chars + 2 dots = 191 octets — fits the 253-octet
+    /// total. Trailing dot is rejected by VerifyDnsLength so the form
+    /// without it is the test subject.
+    func testToAsciiAcceptsLargeButValidDomain() {
+        let label = String(repeating: "a", count: 63)
+        let domain = Array(repeating: label, count: 3).joined(separator: ".")
+        XCTAssertEqual(IDNA.toAscii(domain), domain)
     }
 }
