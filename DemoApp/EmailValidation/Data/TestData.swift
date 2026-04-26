@@ -90,7 +90,8 @@ struct TestData {
     static let validQuotedStringCases: [EmailTestCase] = [
         EmailTestCase(email: #""email"@site.com"#, category: .validQuotedString, expectedValid: true),
         EmailTestCase(email: #""Mickey Mouse"@disney.com"#, category: .validQuotedString, expectedValid: true, description: "Spaces in quoted string"),
-        EmailTestCase(email: #"""@site.com"#, category: .validQuotedString, expectedValid: true, description: "Empty quoted string"),
+        EmailTestCase(email: #"""@site.com"#, category: .validQuotedString, expectedValid: true, description: "Empty quoted string (RFC 5321 ABNF allows; SwiftEmail rejects for parity with dot-atom per §3.3)",
+                      expectedOverrides: [.swiftEmailAscii: false, .swiftEmailAsciiUnicode: false, .swiftEmailUnicode: false]),
         EmailTestCase(email: "\" \"@site.com", category: .validQuotedString, expectedValid: true, description: "Space only quoted string"),
         EmailTestCase(email: "\"!\"@site.com", category: .validQuotedString, expectedValid: true),
         EmailTestCase(email: "\"#\"@site.com", category: .validQuotedString, expectedValid: true),

@@ -462,9 +462,9 @@ If your application must restrict local parts to ASCII-range characters exclusiv
 
 ## Comparison with other Swift email validators
 
-**Last run:** 2026-04-23 &middot; **Toolchain:** Swift 6.3.1, macOS 26.0 (arm64) &middot; **Harness:** [`Benchmarks/`](Benchmarks/)
+**Last run:** 2026-04-26 &middot; **Toolchain:** Swift 6.3.1, macOS 26.4.1 (arm64) &middot; **Harness:** [`Benchmarks/`](Benchmarks/)
 
-The `Benchmarks/` SPM package runs the 195-case DemoApp corpus
+The `Benchmarks/` SPM package runs the 243-case DemoApp corpus
 (`DemoApp/EmailValidation/Data/TestData.swift`, mirrored verbatim into
 `Benchmarks/Sources/EmailBench/TestData.swift`) through every competitor
 library we could consume as an SPM dependency. The harness is kept in a
@@ -475,7 +475,7 @@ pull the competitor dependencies.
 
 | Library | Tested revision | RFC coverage | Domain validation |
 |---|---|---|---|
-| [SwiftEmailValidator](https://github.com/ekscrypto/SwiftEmailValidator) (this package) | 1.4.1 | RFC 822 / 2047 / 5321 / 5322 / 6531 | ✅ IANA TLD + RFC 6761 special-use blocklist (pluggable via `domainValidator:`) |
+| [SwiftEmailValidator](https://github.com/ekscrypto/SwiftEmailValidator) (this package) | 1.6.1 | RFC 822 / 2047 / 5321 / 5322 / 6531 | ✅ IANA TLD + RFC 6761 special-use blocklist (pluggable via `domainValidator:`) |
 | [evanrobertson/EmailValidator](https://github.com/evanrobertson/EmailValidator) | `master` @ `ff80978` (untagged) | RFC 5322; optional i18n (RFC 653x) via `allowInternational:` | — |
 | [igorrendulic/MimeEmailParser](https://github.com/igorrendulic/MimeEmailParser) | 1.0.5 | RFC 5322 + RFC 2047 / 6532 | — |
 | [bdolewski/SwiftEmailValidator](https://github.com/bdolewski/SwiftEmailValidator) | `master` @ `85a0fc1` (regex vendored: the library's `EmailValidator` symbol has default/`internal` access and cannot be imported) | RFC 5322 (single regex) | — |
@@ -516,41 +516,44 @@ swift run -c release EmailBench --verbose    # also lists every failing case
 See [`Benchmarks/README.md`](Benchmarks/README.md) for the crash-discovery
 loop used to populate the skip list.
 
-### Results (195-case corpus)
+### Results (243-case corpus)
 
 | Library | Passed | Failed | Skipped¹ | Accuracy² |
 |---|---:|---:|---:|---:|
-| SwiftEmailValidator (Unicode) | **195** | 0 | 0 | **100.0%** |
-| SwiftEmailValidator (ASCII + RFC 2047) | 188 | 7 | 0 | 96.4% |
-| SwiftEmailValidator (ASCII) | 185 | 10 | 0 | 94.9% |
-| evanrobertson/EmailValidator (ASCII) | 177 | 16 | 2 | 91.7% |
-| bdolewski/SwiftEmailValidator | 175 | 20 | 0 | 89.7% |
-| igorrendulic/MimeEmailParser | 163 | 30 | 2 | 84.5% |
-| evanrobertson/EmailValidator (international) | 150 | 40 | 5 | 78.9% |
-| jwelton/EmailValidator (NSDataDetector) | 110 | 85 | 0 | 56.4% |
+| SwiftEmailValidator (Unicode) | **243** | 0 | 0 | **100.0%** |
+| SwiftEmailValidator (ASCII + RFC 2047) | 235 | 8 | 0 | 96.7% |
+| SwiftEmailValidator (ASCII) | 232 | 11 | 0 | 95.5% |
+| bdolewski/SwiftEmailValidator | 206 | 37 | 0 | 84.8% |
+| evanrobertson/EmailValidator (ASCII) | 203 | 38 | 2 | 84.2% |
+| igorrendulic/MimeEmailParser | 197 | 44 | 2 | 81.7% |
+| evanrobertson/EmailValidator (international) | 151 | 87 | 5 | 63.4% |
+| jwelton/EmailValidator (NSDataDetector) | 138 | 105 | 0 | 56.8% |
 
 ¹ Inputs that crash the library with Swift `fatalError`. Excluded from the
   accuracy denominator. Details below.
 ² Accuracy is computed over `Passed + Failed` only. Each adapter is graded
   against the ground truth defined for its reference mode (see Methodology).
 
-### RFC 5322 scope: 10 corpus cases are not applicable to 5322-only libraries
+### RFC 5322 scope: 11 corpus cases are not applicable to 5322-only libraries
 
-Of the 195 cases, **10 require extensions beyond RFC 5322** to validate as
+Of the 243 cases, **11 require extensions beyond RFC 5322** to validate as
 `expectedValid: true`:
 
-* 6 × `validUnicode` (Korean, emoji, combining marks, mathematical bold — need RFC 6531)
+* 7 × `validUnicode` (Korean, emoji, combining marks, mathematical bold,
+  mixed scripts, U+05B0 PVALID in domain — need RFC 6531 / IDNA2008)
 * 3 × `validRFC2047` (B- and Q-encoded words — need RFC 2047)
 * 1 × `validBoundary` (16 × U+1D11E MUSICAL SYMBOL G CLEF — needs RFC 6531)
 
-The other 185 cases are fully applicable to any RFC 5322-only validator,
-including every invalid-rejection test. Excluding the 10 N/A cases from
-both numerator and denominator for the strictly 5322-only adapters yields:
+The other 232 cases are fully applicable to any RFC 5322-only validator,
+including every invalid-rejection test. The new Default_Ignorable spoofing
+cases added in 1.6.1 are all `expectedValid: false`, so they apply to
+5322-only adapters as well. Excluding the 11 N/A cases from both numerator
+and denominator for the strictly 5322-only adapters yields:
 
 | Library | Within-scope passed | Within-scope failures | Accuracy (5322 scope) |
 |---|---:|---:|---:|
-| evanrobertson/EmailValidator (ASCII) | 177 | 6 | **96.7%** (177 / 183) |
-| bdolewski/SwiftEmailValidator | 175 | 10 | **94.6%** (175 / 185) |
+| bdolewski/SwiftEmailValidator | 206 | 26 | **88.8%** (206 / 232) |
+| evanrobertson/EmailValidator (ASCII) | 203 | 29 | **87.5%** (203 / 232) |
 
 ### Inputs that crash competitor libraries
 
