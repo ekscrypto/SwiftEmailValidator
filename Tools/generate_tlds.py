@@ -5,8 +5,13 @@ TLD list at https://data.iana.org/TLD/tlds-alpha-by-domain.txt.
 
 For each ACE TLD (xn--…) we also emit the Unicode U-label form so domain
 validation works on either representation. U-label expansion uses the
-Python stdlib encodings.idna module (IDNA2003); TLDs whose ACE form does
-not round-trip cleanly are kept ACE-only.
+third-party `idna` PyPI package (IDNA2008 + RFC 3492 Punycode), which is
+the modern standard and matches what RFC 5891 requires of registries.
+
+Dependency: this script requires `pip install idna` (the generator runs in
+maintainer / CI hands, not consumer code — the bundled Swift output has
+zero runtime deps). The GitHub workflow that auto-refreshes the list
+installs `idna` before invoking the script.
 
 Run with no arguments to fetch the live list:
 
@@ -25,8 +30,17 @@ import hashlib
 import re
 import sys
 import urllib.request
-from encodings import idna as stdlib_idna
 from pathlib import Path
+
+try:
+    import idna  # third-party PyPI package (IDNA2008 + Punycode)
+except ImportError:
+    sys.stderr.write(
+        "error: this script requires the `idna` PyPI package "
+        "(`pip install idna`). The stdlib `encodings.idna` only implements "
+        "IDNA2003 and is not used here.\n"
+    )
+    sys.exit(3)
 from typing import Dict, List, Optional
 
 URL = "https://data.iana.org/TLD/tlds-alpha-by-domain.txt"
@@ -138,12 +152,17 @@ def parse_tlds(text: str) -> List[str]:
 
 
 def to_unicode(label: str) -> Optional[str]:
-    """Best-effort ACE → U-label using IDNA2003 (stdlib). Returns None on failure."""
+    """ACE → U-label using IDNA2008 + Punycode (PyPI `idna` package).
+
+    Returns None for non-xn-- input (no expansion needed) or when
+    `idna.decode` rejects the label. The `Note:` header in the generated
+    file lists any rejections so registry edge cases stay auditable.
+    """
     if not label.startswith("xn--"):
         return None
     try:
-        u = stdlib_idna.ToUnicode(label)
-    except (UnicodeError, UnicodeDecodeError):
+        u = idna.decode(label)
+    except idna.IDNAError:
         return None
     if not u or u == label:
         return None
@@ -176,7 +195,7 @@ def render(tlds: List[str], raw_bytes: bytes, source_url: str) -> str:
 
     skipped_note = ""
     if skipped:
-        skipped_note = f"//  Note: {len(skipped)} ACE TLDs had no IDNA2003 U-label expansion: " \
+        skipped_note = f"//  Note: {len(skipped)} ACE TLDs had no IDNA2008 U-label expansion: " \
                        f"{', '.join(skipped)}\n"
 
     return f"""\

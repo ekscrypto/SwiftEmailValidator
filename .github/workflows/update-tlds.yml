@@ -30,6 +30,9 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Install generator dependencies
+        run: pip install --no-cache-dir idna
+
       - name: Regenerate IANATLDs.swift
         run: python3 Tools/generate_tlds.py
 
