@@ -6,8 +6,8 @@
 //  Regenerate with: python3 Tools/generate_tlds.py
 //
 //  Source:  https://data.iana.org/TLD/tlds-alpha-by-domain.txt
-//  Fetched: 2026-04-26T01:15:45Z
-//  SHA-256: 6cc00274a88b2a1bb88763873675356a1f52cf0f3f140bc7757b2dbea5c2456c
+//  Fetched: 2026-04-27T05:25:15Z
+//  SHA-256: 677ffde301b9a7267a98d1c516296c78773958a902d262a74d9f5f5709452632
 //  Entries: 1588 (1437 ACE + 151 U-label)
 //
 //  Both ACE (xn--…) and Unicode U-label forms are included so the default
