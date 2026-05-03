@@ -260,6 +260,10 @@ def main() -> int:
     new_ace = set(tlds)
     old_ace = parse_existing_ace_tlds(out_path)
 
+    if old_ace is not None and new_ace == old_ace:
+        print(f"no change: upstream SHA-256 differs but parsed TLD set is identical — leaving {out_path} untouched")
+        return 0
+
     rendered = render(tlds, raw, source_label)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(rendered)
